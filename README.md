@@ -14,3 +14,15 @@
 
 ## Why
 Why not, terminals should be smarter
+
+## Build
+### Create a build folder and cd in to it
+`mkdir build`
+`cd build`
+
+### Run cmake and make
+`cmake ..` or `cmake -DCMAKE_CXX_COMPILER=g++-14 ..` to make sure it uses GCC 14 for C++23
+`make`
+
+### Run it
+`./DASH`
