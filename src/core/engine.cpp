@@ -7,8 +7,20 @@
 #include <poll.h>
 #include <csignal>
 #include <sys/wait.h>
+#include <filesystem>
+
+// EMBEDDED MODULE DEFINITION
+// This defines what C++ functions are available to Python
+PYBIND11_EMBEDDED_MODULE(dash, m) {
+    // Expose a print function so Python can write to the DASH shell
+    m.def("log", [](std::string msg) {
+        std::print("\r\n[\x1b[92m-\x1b[0m]: {}\r\n", msg);
+    });
+}
 
 namespace dash::core {
+
+    namespace fs = std::filesystem;
 
     constexpr size_t BUFFER_SIZE = 4096;
 
@@ -17,6 +29,47 @@ namespace dash::core {
     Engine::~Engine() {
         if (running_) {
             kill(pty_.get_child_pid(), SIGTERM);
+        }
+    }
+
+    void Engine::load_extensions(const std::string& path) {
+        if (!fs::exists(path)) {
+            fs::create_directory(path);
+            return;
+        }
+
+            try {
+                // Add the plugin path to Python's sys.path so it can find files there
+                py::module_ sys = py::module_::import("sys");
+                sys.attr("path").attr("append")(path);
+
+                for (const auto& entry : fs::directory_iterator(path)) {
+                    if (entry.path().extension() == ".py") {
+                        std::string module_name = entry.path().stem().string();
+                        
+                        // Import the file as a module
+                        py::module_ plugin = py::module_::import(module_name.c_str());
+                        loaded_plugins_.push_back(plugin);
+                        
+                        std::print("Loaded extension: {}\n", module_name);
+                    }
+                }
+            } catch (const std::exception& e) {
+                std::print(stderr, "<DASH> Error, failed to load extensions: {}\n", e.what());
+            }
+        }
+
+    void Engine::trigger_python_hook(const std::string& hook_name, const std::string& data) {
+        for (auto& plugin : loaded_plugins_) {
+            // Check if the python file has a function with this name
+            if (plugin.attr(hook_name.c_str())) {
+                try {
+                    plugin.attr(hook_name.c_str())(data);
+                } catch (const std::exception& e) {
+                    // Python runtime error
+                    std::print(stderr, "Error in plugin: {}\n", e.what());
+                }
+            }
         }
     }
 
@@ -138,6 +191,7 @@ void Engine::forward_shell_output() {
                             running_ = false;
                             kill(pty_.get_child_pid(), SIGHUP);
                         }
+                        trigger_python_hook("on_command", cmd_accumulator);
                         // Clear buffer for the next command
                         cmd_accumulator.clear();
                     }
@@ -154,14 +208,6 @@ void Engine::forward_shell_output() {
                 write(pty_.get_master_fd(), buffer.data(), n);
             }
         }
-    }
-
-    void Engine::handle_python_hook(std::string_view code) {
-        std::print("[DASH Executing Python]: {}\r\n", code);
-        
-        // for demo purposes
-        std::string cmd = std::format("python3 -c \"{}\"", code);
-        system(cmd.c_str());
     }
 
     std::string Engine::process_output(std::string_view raw_output) {
