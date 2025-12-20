@@ -25,7 +25,7 @@ namespace dash::core {
 
         running_ = true;
         // \r\n is needed because RAW mode
-        std::print("<DASH> has been started. Type ':quit' or ':exit' to exit.\r\n");
+        std::print("<DASH> has been started. Type ':q' or ':exit' to exit.\r\n");
 
         std::thread output_thread(&Engine::forward_shell_output, this);
 
@@ -63,6 +63,18 @@ void Engine::forward_shell_output() {
 
             if (bytes_read <= 0) break;
 
+            // modifying the output, look into combining this with the else for loop below later
+            std::string_view chunk(buffer.data(), bytes_read);
+            if (intercepting) {
+                pending_output_buffer_ += chunk;
+                if (pending_output_buffer_.find("$ ") != std::string::npos ||
+                    pending_output_buffer_.find("> ") != std::string::npos) {
+                        std::string modified = process_output(pending_output_buffer_);
+                        write(STDOUT_FILENO, modified.c_str(), modified.size());
+                        intercepting = false;
+                        pending_output_buffer_.clear();
+                    }
+            } else {
             for (ssize_t i = 0; i < bytes_read; ++i) {
                 char c = buffer[i];
 
@@ -73,11 +85,8 @@ void Engine::forward_shell_output() {
                         at_line_start_ = false;
                     }
                 }
-
                 write(STDOUT_FILENO, &c, 1);
-
-                if (c == '\n' || c == '\r') {
-                    at_line_start_ = true;
+                if (c == '\n' || c == '\r') at_line_start_ = true;
                 }
             }
         }
@@ -106,7 +115,7 @@ void Engine::forward_shell_output() {
                 ssize_t n = read(STDIN_FILENO, buffer.data(), buffer.size());
                 if (n <= 0) break;
 
-                // Simple check for command ":quit" & ":exit"
+                // Simple check for commands "ls", ":q" & ":exit"
                 // In a real raw-mode shell, detecting "lines" is harder because
                 // you get 'q', then 'u', then 'i', then 't'.
                 // For this, we pass everything to bash, unless we detect a pattern.
@@ -116,8 +125,16 @@ void Engine::forward_shell_output() {
                     // Check for Enter key (\r or \n)
                     if (c == '\r' || c == '\n') {
 
-                        // Check if the accumulated string matches our command
-                        if (cmd_accumulator == ":quit" || cmd_accumulator == ":exit") {
+                        // Check if the accumulated string matches any of our commands
+                        if (cmd_accumulator == "ls") {
+                            intercepting = true;
+                            pending_output_buffer_.clear();
+                            std::print("\r\n<DASH> test, detected 'ls'\r\n");
+                        } else {
+                            intercepting = false;
+                        }
+
+                        if (cmd_accumulator == ":q" || cmd_accumulator == ":exit") {
                             running_ = false;
                             kill(pty_.get_child_pid(), SIGHUP);
                         }
@@ -145,5 +162,18 @@ void Engine::forward_shell_output() {
         // for demo purposes
         std::string cmd = std::format("python3 -c \"{}\"", code);
         system(cmd.c_str());
+    }
+
+    std::string Engine::process_output(std::string_view raw_output) {
+        // for example a simple text replacement
+        std::string s(raw_output);
+        size_t pos = 0;
+
+        // modify the loop for some actual purpose later
+        while ((pos = s.find("src", pos)) != std::string::npos) {
+            s.replace(pos, 3, "src<TEST>");
+            pos += 13; // move past replacement
+        }
+        return s;
     }
 }

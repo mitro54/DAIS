@@ -3,6 +3,7 @@
 #include "core/session.hpp"
 #include <atomic>
 #include <string_view>
+#include <string>
 
 namespace dash::core {
 
@@ -17,6 +18,11 @@ namespace dash::core {
         PTYSession pty_;
         std::atomic<bool> running_;
         std::atomic<bool> at_line_start_{true};
+
+        // modifying output
+        std::string pending_output_buffer_;
+        bool intercepting = false;
+        std::string process_output(std::string_view raw_output);
 
         // The background thread that reads from Bash -> Screen
         void forward_shell_output();
