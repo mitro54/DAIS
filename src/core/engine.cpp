@@ -20,8 +20,6 @@ PYBIND11_EMBEDDED_MODULE(dash, m) {
 
 namespace dash::core {
 
-    namespace fs = std::filesystem;
-
     constexpr size_t BUFFER_SIZE = 4096;
 
     Engine::Engine() : running_(false) {}
@@ -33,36 +31,40 @@ namespace dash::core {
     }
 
     void Engine::load_extensions(const std::string& path) {
-        if (!fs::exists(path)) {
-            fs::create_directory(path);
-            return;
+        namespace fs = std::filesystem;
+        fs::path p(path);
+        if (path.empty() || !fs::exists(p) || !fs::is_directory(p)) {
+        std::print(stderr, "[\x1b[93m-\x1b[0m] Warning: Plugin path '{}' invalid. Skipping Python extensions.\n", path);
+        return;
         }
+        std::string abs_path = fs::absolute(p).string();
 
-            try {
-                // Add the plugin path to Python's sys.path so it can find files there
-                py::module_ sys = py::module_::import("sys");
-                sys.attr("path").attr("append")(path);
+        try {
+            // Add the plugin path to Python's sys.path so it can find files there
+            py::module_ sys = py::module_::import("sys");
+            sys.attr("path").attr("append")(path);
 
-                for (const auto& entry : fs::directory_iterator(path)) {
-                    if (entry.path().extension() == ".py") {
-                        std::string module_name = entry.path().stem().string();
-                        
-                        // Import the file as a module
-                        py::module_ plugin = py::module_::import(module_name.c_str());
-                        loaded_plugins_.push_back(plugin);
-                        
-                        std::print("Loaded extension: {}\n", module_name);
-                    }
+            for (const auto& entry : fs::directory_iterator(path)) {
+                if (entry.path().extension() == ".py") {
+                    std::string module_name = entry.path().stem().string();
+
+                    if (module_name == "__init__") continue;
+                    // Import the file as a module
+                    py::module_ plugin = py::module_::import(module_name.c_str());
+                    loaded_plugins_.push_back(plugin);
+                    
+                    std::print("[\x1b[92m-\x1b[0m] Loaded .py extension: {}\n", module_name);
                 }
-            } catch (const std::exception& e) {
-                std::print(stderr, "<DASH> Error, failed to load extensions: {}\n", e.what());
             }
+        } catch (const std::exception& e) {
+            std::print(stderr, "[\x1b[91m-\x1b[0m] Error, failed to load extensions: {}\n", e.what());
         }
+    }
 
     void Engine::trigger_python_hook(const std::string& hook_name, const std::string& data) {
         for (auto& plugin : loaded_plugins_) {
             // Check if the python file has a function with this name
-            if (plugin.attr(hook_name.c_str())) {
+            if (py::hasattr(plugin, hook_name.c_str())) {
                 try {
                     plugin.attr(hook_name.c_str())(data);
                 } catch (const std::exception& e) {
