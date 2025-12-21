@@ -11,16 +11,22 @@ namespace py = pybind11;
 
 namespace dash::core {
 
+    struct Config {
+        bool show_logo = true;
+    };
+
     class Engine {
     public:
         Engine();
         ~Engine();
         void run();
-        void load_extensions(const std::string& path); 
+        void load_extensions(const std::string& path);
+        void load_configuration(const std::string& path);
     private:
         PTYSession pty_;
         std::atomic<bool> running_;
         std::atomic<bool> at_line_start_{true};
+        Config config_;
 
         // modifying output
         std::string pending_output_buffer_;
