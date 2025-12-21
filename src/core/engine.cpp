@@ -68,8 +68,10 @@ namespace dash::core {
             // SHOW_LOGO
             if (py::hasattr(conf_module, "SHOW_LOGO")) {
                 config_.show_logo = conf_module.attr("SHOW_LOGO").cast<bool>();
-                if (config_.show_logo) std::print("[92m-\x1b[0m] SHOW_LOGO set to {}\n", config_.show_logo);
-                else std::print("[91m-\x1b[0m] SHOW_LOGO set to {}\n", config_.show_logo);
+
+                // later modify this to only print if something has changed, or on demand (command for it)
+                if (config_.show_logo) std::print("[\x1b[92m-\x1b[0m] SHOW_LOGO = {}\n", config_.show_logo);
+                else std::print("[\x1b[91m-\x1b[0m] SHOW_LOGO = {}\n", config_.show_logo);
             }
 
             // list all the possible settings here in the same way, if hasattr conf module "SETTING_NAME"...

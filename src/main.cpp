@@ -22,8 +22,9 @@ std::string find_plugins_path() {
 
 int main() {
     dash::core::Engine engine;
-    std::string plugins_path = find_plugins_path();
-    engine.load_extensions(plugins_path);
+    std::string root_path = find_plugins_path();
+    engine.load_configuration(root_path);
+    engine.load_extensions(root_path);
     engine.run();
     return 0;
 }
