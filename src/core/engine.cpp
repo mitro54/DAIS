@@ -248,6 +248,24 @@ void Engine::forward_shell_output() {
         // then process the desired output modification for each file type
         // stitch the newly modified filenames with their new content back to their place
         // show the output
+        
+        // thinking of moving the functions to a separate file as this gets quite large QUICKLY,
+        // if plenty of input commands has their own different functionalities
+
+        // -----will modify this snippet to work with this idea on better time-----
+        // int start = 0, end, word_finder;
+        // std::string sentence, word;
+        // std::cout << "Input sentence: ";
+        // std::getline(std::cin, sentence);
+
+        // while ((end = sentence.find(' ', start)) != std::string::npos) {
+        //         word = sentence.substr(start, end - start);
+        //         word_finder = sentence.find(word, end);
+        //         if (sentence.find(word, end) != std::string::npos)
+        //             sentence.erase(word_finder, word_finder - start);
+        //         start = end + 1;
+        //     }
+        // -------------------------------------------------------------------------
 
         // modify the loop for some actual purpose later
         while ((pos = s.find("src", pos)) != std::string::npos) {
