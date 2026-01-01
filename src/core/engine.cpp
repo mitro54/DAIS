@@ -242,11 +242,19 @@ void Engine::forward_shell_output() {
         std::string s(raw_output);
         size_t pos = 0;
 
+        // 'ls' command functionality: (should probably also be configurable later)
+        // function that splits all the s string filenames in a vector/arr based on ' '
+        // then check each filename with the 'file' cmd to see what type of files they are in the background
+        // then process the desired output modification for each file type
+        // stitch the newly modified filenames with their new content back to their place
+        // show the output
+
         // modify the loop for some actual purpose later
         while ((pos = s.find("src", pos)) != std::string::npos) {
             s.replace(pos, 3, "src<TEST>");
             pos += 13; // move past replacement
         }
+
         return s;
     }
 }
