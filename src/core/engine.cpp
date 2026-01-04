@@ -3,15 +3,14 @@
 #include <cstring> // for std::strlen
 #include <thread>
 #include <array>
-#include <vector>
 #include <string>
 #include <string_view>
-#include <sstream>
 #include <iostream>
 #include <poll.h>
 #include <csignal>
 #include <sys/wait.h>
 #include <filesystem>
+#include <atomic>
 
 // EMBEDDED MODULE DEFINITION
 // This defines what C++ functions are available to Python
@@ -25,7 +24,10 @@ PYBIND11_EMBEDDED_MODULE(dash, m) {
 namespace dash::core {
 
     constexpr size_t BUFFER_SIZE = 4096;
-    Engine::Engine() : running_(false) {}
+    std::atomic<bool> running_{false};
+    std::atomic<bool> intercepting{false};
+
+    Engine::Engine() {}
     Engine::~Engine() { if (running_) kill(pty_.get_child_pid(), SIGTERM); }
 
     void Engine::load_extensions(const std::string& path) {
@@ -120,62 +122,63 @@ namespace dash::core {
         std::print("\r\n<DASH> Session ended.\n");
     }
 
-void Engine::forward_shell_output() {
-    std::array<char, BUFFER_SIZE> buffer;
-    struct pollfd pfd{};
-    pfd.fd = pty_.get_master_fd();
-    pfd.events = POLLIN;
+    void Engine::forward_shell_output() {
+        std::array<char, BUFFER_SIZE> buffer;
+        struct pollfd pfd{};
+        pfd.fd = pty_.get_master_fd();
+        pfd.events = POLLIN;
 
-    while (running_) {
-        int ret = poll(&pfd, 1, 100);
-        if (ret <= 0) continue;
+        while (running_) {
+            int ret = poll(&pfd, 1, 100);
+            if (ret <= 0) continue;
 
-        if (pfd.revents & (POLLERR | POLLHUP)) {
-            running_ = false;
-            break;
-        }
+            if (pfd.revents & (POLLERR | POLLHUP)) {
+                running_ = false;
+                break;
+            }
 
-        if (pfd.revents & POLLIN) {
-            ssize_t bytes_read = read(
-                pty_.get_master_fd(),
-                buffer.data(),
-                buffer.size()
-            );
+            if (pfd.revents & POLLIN) {
+                ssize_t bytes_read = read(
+                    pty_.get_master_fd(),
+                    buffer.data(),
+                    buffer.size()
+                );
 
-            if (bytes_read <= 0) break;
+                if (bytes_read <= 0) break;
 
-            // modifying the output, look into combining this with the else for loop below later
-            std::string_view chunk(buffer.data(), bytes_read);
-            if (intercepting) {
-                pending_output_buffer_ += chunk;
-                if (pending_output_buffer_.find("$ ") != std::string::npos ||
-                    pending_output_buffer_.find("> ") != std::string::npos) {
-                        std::string modified = process_output(pending_output_buffer_);
-                        write(STDOUT_FILENO, modified.c_str(), modified.size());
-                        intercepting = false;
-                        pending_output_buffer_.clear();
-                    }
-            } else {
-            for (ssize_t i = 0; i < bytes_read; ++i) {
-                char c = buffer[i];
+                // interception mode
+                // modifying the output, look into combining this with the else for loop below later
+                if (intercepting) {
+                    std::string_view chunk(buffer.data(), bytes_read);
+                    pending_output_buffer_ += chunk;
+                    if (pending_output_buffer_.find("$ ") != std::string::npos ||
+                        pending_output_buffer_.find("> ") != std::string::npos) {
+                            std::string modified = process_output(pending_output_buffer_);
+                            write(STDOUT_FILENO, modified.c_str(), modified.size());
+                            intercepting = false;
+                            pending_output_buffer_.clear();
+                        }
+                } else {
+                for (ssize_t i = 0; i < bytes_read; ++i) {
+                    char c = buffer[i];
 
-                if (at_line_start_) {
-                    if (c != '\n' && c != '\r') {
-                        // check the config
-                        if (config_.show_logo) {
-                        const char* dash = "[\x1b[95m-\x1b[0m] ";
-                        write(STDOUT_FILENO, dash, std::strlen(dash));
-                        at_line_start_ = false;
+                    if (at_line_start_) {
+                        if (c != '\n' && c != '\r') {
+                            // check the config
+                            if (config_.show_logo) {
+                            const char* dash = "[\x1b[95m-\x1b[0m] ";
+                            write(STDOUT_FILENO, dash, std::strlen(dash));
+                            at_line_start_ = false;
+                            }
                         }
                     }
-                }
-                write(STDOUT_FILENO, &c, 1);
-                if (c == '\n' || c == '\r') at_line_start_ = true;
+                    write(STDOUT_FILENO, &c, 1);
+                    if (c == '\n' || c == '\r') at_line_start_ = true;
+                    }
                 }
             }
         }
     }
-}
 
     void Engine::process_user_input() {
         // In RAW mode, we read char by char, but for this prototype,
@@ -208,15 +211,8 @@ void Engine::forward_shell_output() {
 
                     // Check for Enter key (\r or \n)
                     if (c == '\r' || c == '\n') {
-
                         // Check if the accumulated string matches any of our commands
-                        if (cmd_accumulator == "ls") {
-                            intercepting = true;
-                            pending_output_buffer_.clear();
-                            std::print("\r\n<DASH> test, detected 'ls'\r\n");
-                        } else {
-                            intercepting = false;
-                        }
+                        if (cmd_accumulator == "ls") intercepting = true;
 
                         if (cmd_accumulator == ":q" || cmd_accumulator == ":exit") {
                             running_ = false;
@@ -241,35 +237,66 @@ void Engine::forward_shell_output() {
         }
     }
 
+    // 'ls' command functionality: (should probably also be configurable later)
+    // check each filename with the 'file' cmd to see what type of files they are in the background
+    // then process the desired output modification for each file type
+    // stitch the newly modified filenames with their new content back to their place
+    // show the output
+    
+    // thinking of moving the functions to a separate file as this gets quite large QUICKLY,
+    // if plenty of input commands has their own different functionalities
+
     std::string Engine::process_output(std::string_view raw_output) {
-        std::string s(raw_output);
-        std::stringstream ss(s);
-        std::string filename;
-        std::vector<std::string> filename_storage;
+        std::string final_output;
+        final_output.reserve(raw_output.size() * 2);
 
-        // 'ls' command functionality: (should probably also be configurable later)
-        // function that splits all the s string filenames in a vector/arr based on ' '
-        // then check each filename with the 'file' cmd to see what type of files they are in the background
-        // then process the desired output modification for each file type
-        // stitch the newly modified filenames with their new content back to their place
-        // show the output
+        const std::string delimiters = " \t\n\r"; 
+        size_t last_pos = 0;
         
-        // thinking of moving the functions to a separate file as this gets quite large QUICKLY,
-        // if plenty of input commands has their own different functionalities
+        // Identify where the command output ends and the prompt begins,
+        // prompt is always the text after the very last newline
+        size_t last_newline = raw_output.find_last_of("\n");
+        if (last_newline == std::string_view::npos) last_newline = raw_output.length(); 
+        bool apply_formatting = true;
+        bool prompt_logo_inserted = false;
 
-        // still needs a lot of work with the formatting etc, but works for a quick proto
-        while (std::getline(ss, filename, ' ')) {
-            if (!filename.empty())
-                filename_storage.push_back(filename);
+        size_t start = raw_output.find_first_not_of(delimiters, 0);
+
+        while (start != std::string_view::npos) {
+            // Append whitespace exactly as is
+            final_output.append(raw_output.substr(last_pos, start - last_pos));
+
+            // Find end of the current token
+            size_t end = raw_output.find_first_of(delimiters, start);
+            if (end == std::string_view::npos) end = raw_output.length();
+
+            std::string_view token = raw_output.substr(start, end - start);
+
+            // If the current token starts after the last newline, it is part of the prompt
+            if (start > last_newline) {
+                apply_formatting = false;
+                
+                // Re-inject [-] once, right before the prompt starts
+                if (!prompt_logo_inserted && config_.show_logo) {
+                    final_output += "[\x1b[95m-\x1b[0m] "; 
+                    prompt_logo_inserted = true;
+                }
+            }
+
+            if (apply_formatting) {
+                final_output += "| ";
+                final_output.append(token);
+                final_output += " |";
+            } else {
+                final_output.append(token);
+            }
+            last_pos = end;
+            start = raw_output.find_first_not_of(delimiters, last_pos);
         }
 
-        std::string final_output = "";
-        for (const auto& file : filename_storage) {
-            std::string processed_name = "<" + file + ">";
-            if (!final_output.empty())
-                final_output += " ";
-            final_output += processed_name;
-        }
+        // Append trailing whitespace
+        if (last_pos < raw_output.length()) final_output.append(raw_output.substr(last_pos));
+
         return final_output;
     }
 }
