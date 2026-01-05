@@ -108,7 +108,7 @@ namespace dash::core::handlers {
     /**
      * @brief Transforms 'ls' output into a responsive, rich-text grid.
      * * Pipeline:
-     * 1. Tokenize output (splitting by whitespace).
+     * 1. Tokenize output (splitting by NEWLINE for 'ls -1' compatibility).
      * 2. Clean ANSI codes from tokens to resolve actual file paths.
      * 3. Analyze file stats (size, type, rows).
      * 4. Apply Themed formatting.
@@ -116,10 +116,16 @@ namespace dash::core::handlers {
      */
     inline std::string handle_ls(std::string_view raw_output, const std::filesystem::path& cwd) {
         std::stringstream ss{std::string(raw_output)};
-        std::string token;
+        std::string line;
         std::vector<std::string> original_items;
         
-        while (ss >> token) original_items.push_back(token);
+        // C++23: Use std::getline to respect whitespace in filenames (requires ls -1)
+        while (std::getline(ss, line)) {
+            // Remove carriage return if present (common in PTY output)
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            original_items.push_back(line);
+        }
+
         if (original_items.empty()) return "";
 
         struct GridItem {
@@ -134,10 +140,22 @@ namespace dash::core::handlers {
             std::string clean_name = strip_ansi(item_raw);
             
             // Filters: Remove echoed command name and special directories
-            if (first_token && clean_name == "ls") { first_token = false; continue; }
+            // Since we use 'ls -1', the echo might appear as 'ls -1'
+            if (first_token && (clean_name == "ls" || clean_name == "ls -1")) { 
+                first_token = false; 
+                continue; 
+            }
             first_token = false;
-            if (clean_name.empty() || clean_name == "." || clean_name == "..") continue;
-
+            
+            if (clean_name.empty() || 
+                clean_name == "." || 
+                clean_name == ".." || 
+                clean_name == "ls" || 
+                clean_name == "ls -1" || 
+                clean_name == "-1" ||
+                clean_name == " -1") {
+                continue;
+            }
             // Resolve Path & Analyze
             std::filesystem::path full_path = cwd / clean_name;
             auto stats = dash::utils::analyze_path(full_path.string());

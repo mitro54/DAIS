@@ -206,18 +206,25 @@ namespace dash::core {
                 ssize_t n = read(STDIN_FILENO, buffer.data(), buffer.size());
                 if (n <= 0) break;
 
+                // Create a dynamic buffer for what we send to master_fd.
+                // This allows us to inject flags (like -1) transparently.
+                std::string data_to_write;
+                data_to_write.reserve(n + 8); 
+
                 // Simple check for commands "ls", ":q" & ":exit"
-                // In a real raw-mode shell, detecting "lines" is harder because
-                // you get 'q', then 'u', then 'i', then 't'.
-                // For this, we pass everything to bash, unless we detect a pattern.
                 for (ssize_t i = 0; i < n; ++i) {
                     char c = buffer[i];
 
                     // Check for Enter key (\r or \n)
                     if (c == '\r' || c == '\n') {
                         current_command_ = cmd_accumulator; 
+                        
                         // Check if the accumulated string matches any of our commands
-                        if (cmd_accumulator == "ls") intercepting = true;
+                        if (cmd_accumulator == "ls") {
+                            intercepting = true;
+                            // INJECTION: Force 'ls' to become 'ls -1' to separate files by newline
+                            data_to_write += " -1";
+                        }
 
                         if (cmd_accumulator == ":q" || cmd_accumulator == ":exit") {
                             running_ = false;
@@ -275,9 +282,15 @@ namespace dash::core {
                     else {
                         cmd_accumulator += c;
                     }
+
+                    // Append the actual character to the outgoing stream (e.g. the newline)
+                    data_to_write += c;
                 }
+                
                 // Writing to master_fd sends keystrokes to Bash
-                write(pty_.get_master_fd(), buffer.data(), n);
+                if (!data_to_write.empty()) {
+                    write(pty_.get_master_fd(), data_to_write.data(), data_to_write.size());
+                }
             }
         }
     }
