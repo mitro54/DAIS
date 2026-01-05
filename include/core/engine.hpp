@@ -49,6 +49,11 @@ namespace dash::core {
         void process_user_input();
 
         void trigger_python_hook(const std::string& hook_name, const std::string& data);
+
+        /** * @brief Queries the OS to get the actual CWD of the child shell process.
+         * Essential for handling TAB completion where input buffer doesn't match path.
+         */
+        void sync_child_cwd();
     };
 
 }

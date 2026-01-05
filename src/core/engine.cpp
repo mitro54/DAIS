@@ -13,6 +13,13 @@
 #include <filesystem>
 #include <atomic>
 
+// --- OS Specific Includes for CWD Sync ---
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
+// -----------------------------------------
+
 // EMBEDDED MODULE DEFINITION
 // This defines what C++ functions are available to Python
 PYBIND11_EMBEDDED_MODULE(dash, m) {
@@ -104,6 +111,30 @@ namespace dash::core {
         }
     }
 
+    void Engine::sync_child_cwd() {
+        pid_t pid = pty_.get_child_pid();
+        if (pid <= 0) return;
+
+#if defined(__APPLE__)
+        // macOS Best Practice: Use libproc to get CWD of the child process ID
+        struct proc_vnodepathinfo vpi;
+        if (proc_pidinfo(pid, PROC_PIDVNODEPATHINFO, 0, &vpi, sizeof(vpi)) > 0) {
+            // vip_path is the absolute path
+            shell_cwd_ = std::filesystem::path(vpi.pvi_cdir.vip_path);
+        }
+#elif defined(__linux__)
+        // Linux Best Practice: Read the /proc/{pid}/cwd symlink
+        try {
+            auto link_path = std::format("/proc/{}/cwd", pid);
+            if (std::filesystem::exists(link_path)) {
+                shell_cwd_ = std::filesystem::read_symlink(link_path);
+            }
+        } catch (...) {
+            // Permission denied or process gone; ignore.
+        }
+#endif
+    }
+
     void Engine::run() {
         if (!pty_.start()) return;
 
@@ -185,11 +216,9 @@ namespace dash::core {
     }
 
     void Engine::process_user_input() {
-        // In RAW mode, we read char by char, but for this prototype,
-        // we might want to buffer lines or just pass-through.
-        // HOWEVER: Since we set RAW mode in Session, std::getline won't work nicely
-        // because it expects canonical processing. 
-        // For a wrapper, we usually read stdin raw bytes.
+        // In RAW mode, we read char by char.
+        // We accumulate chars to detect commands, but we cannot rely on this 
+        // buffer for paths because TAB completion happens in the shell, not here.
         
         std::array<char, BUFFER_SIZE> buffer;
         struct pollfd pfd{};
@@ -206,8 +235,6 @@ namespace dash::core {
                 ssize_t n = read(STDIN_FILENO, buffer.data(), buffer.size());
                 if (n <= 0) break;
 
-                // Create a dynamic buffer for what we send to master_fd.
-                // This allows us to inject flags (like -1) transparently.
                 std::string data_to_write;
                 data_to_write.reserve(n + 8); 
 
@@ -221,6 +248,10 @@ namespace dash::core {
                         
                         // Check if the accumulated string matches any of our commands
                         if (cmd_accumulator == "ls") {
+                            // CWD FIX: Before running LS logic, ensure we know the REAL directory.
+                            // This accounts for any previous 'cd' commands that used TAB completion.
+                            sync_child_cwd(); 
+
                             intercepting = true;
                             // INJECTION: Force 'ls' to become 'ls -1' to separate files by newline
                             data_to_write += " -1";
@@ -232,44 +263,10 @@ namespace dash::core {
                             return;
                         }
 
-                        // 3. Track 'cd' to keep shell_cwd_ in sync
-                        // We check if it starts with "cd" followed by space or is just "cd"
-                        if (cmd_accumulator == "cd" || cmd_accumulator.starts_with("cd ")) {
-                            std::string path_arg;
-                            if (cmd_accumulator.length() > 3) {
-                                path_arg = cmd_accumulator.substr(3); // Grab "folder" from "cd folder"
-                            }
+                        // REMOVED MANUAL 'cd' PARSING.
+                        // Relying on input parsing for 'cd' is broken by TAB completion.
+                        // Instead, we now sync CWD lazily in sync_child_cwd() above.
 
-                            std::filesystem::path new_path;
-
-                            if (path_arg.empty()) {
-                                // "cd" -> Go Home
-                                const char* home = std::getenv("HOME");
-                                if (home) new_path = std::filesystem::path(home);
-                            } else {
-                                // Resolve path
-                                new_path = path_arg;
-                            }
-
-                            // If relative, combine with current. If absolute, use as is.
-                            if (new_path.is_relative()) {
-                                new_path = shell_cwd_ / new_path;
-                            }
-
-                            // Normalize (resolve ".." and ".")
-                            // Note: C++17 'weakly_canonical' helps resolve ".." without crashing if file missing, 
-                            // but 'canonical' is stricter and follows symlinks. 
-                            try {
-                                if (std::filesystem::exists(new_path) && std::filesystem::is_directory(new_path)) {
-                                    // Use weakly_canonical to clean up "folder/../folder" mess
-                                    shell_cwd_ = std::filesystem::canonical(new_path);
-                                    // Debug print to verify tracking (remove later)
-                                    // std::print("\r\n[DEBUG] CWD is now: {}\r\n", shell_cwd_.string());
-                                }
-                            } catch (...) {
-                                // Access denied or invalid path - ignore update, assume shell failed too
-                            }
-                        }
                         trigger_python_hook("on_command", cmd_accumulator);
                         // Clear buffer for the next command
                         cmd_accumulator.clear();
@@ -283,7 +280,7 @@ namespace dash::core {
                         cmd_accumulator += c;
                     }
 
-                    // Append the actual character to the outgoing stream (e.g. the newline)
+                    // Append the actual character to the outgoing stream
                     data_to_write += c;
                 }
                 
@@ -301,9 +298,6 @@ namespace dash::core {
     // stitch the newly modified filenames with their new content back to their place
     // show the output
     
-    // thinking of moving the functions to a separate file as this gets quite large QUICKLY,
-    // if plenty of input commands has their own different functionalities
-
     std::string Engine::process_output(std::string_view raw_output) {
         std::string final_output;
         final_output.reserve(raw_output.size() * 3);
