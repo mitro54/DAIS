@@ -19,15 +19,25 @@ namespace dais::core::handlers {
     // ==================================================================================
     
     /**
-     * @brief Centralized color palette using ANSI 256-color codes.
-     * Designed for a formal, IDE-like appearance (Slate/Sage tones).
+     * @brief Centralized color palette.
+     * Values are initialized with defaults but are overwritten by Config.py at runtime.
+     * Using 'inline static' allows them to be mutable global state accessible by Engine.
      */
     struct Theme {
-        static constexpr auto RESET     = "\x1b[0m";
-        static constexpr auto STRUCTURE = "\x1b[38;5;240m"; // Dark Gray (Borders, Parentheses, Commas)
-        static constexpr auto UNIT      = "\x1b[38;5;109m"; // Sage Blue (Units: KB, MB, DIR)
-        static constexpr auto VALUE     = "\x1b[0m";        // Default White (Numerical Data)
-        static constexpr auto ESTIMATE  = "\x1b[38;5;139m"; // Muted Purple (Tilde ~ for estimates)
+        inline static std::string RESET     = "\x1b[0m";
+        inline static std::string STRUCTURE = "\x1b[38;5;240m"; // Dark Gray
+        inline static std::string UNIT      = "\x1b[38;5;109m"; // Sage Blue
+        inline static std::string VALUE     = "\x1b[0m";        // Default
+        inline static std::string ESTIMATE  = "\x1b[38;5;139m"; // Muted Purple
+        inline static std::string DIR_NAME  = "\x1b[1m\x1b[38;5;39m"; // Bold Blue
+        inline static std::string SYMLINK   = "\x1b[38;5;36m";  // Cyan
+        
+        // Engine Specifics (Logs/Logo)
+        inline static std::string LOGO      = "\x1b[95m";       // Pink
+        inline static std::string SUCCESS   = "\x1b[92m";       // Green
+        inline static std::string WARNING   = "\x1b[93m";       // Yellow
+        inline static std::string ERROR     = "\x1b[91m";       // Red
+        inline static std::string NOTICE    = "\x1b[94m";       // Blue
     };
 
     // ==================================================================================
@@ -167,11 +177,11 @@ namespace dais::core::handlers {
                 if (stats.is_dir) {
                     // DIRECTORY: "Name (DIR: 5 items)"
                     display = std::format("{} {}({}{}: {}{} {}{}{})", 
-                        item_raw, 
+                        item_raw,
                         Theme::STRUCTURE, // (
-                        Theme::UNIT, "DIR", 
+                        Theme::UNIT, "DIR",
                         Theme::VALUE, stats.item_count, 
-                        Theme::UNIT, "items", 
+                        Theme::UNIT, "items",
                         Theme::STRUCTURE // )
                     ); 
                 } else {

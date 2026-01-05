@@ -42,8 +42,11 @@
 PYBIND11_EMBEDDED_MODULE(dais, m) {
     // Expose a print function so Python can write formatted logs to the DAIS shell
     m.def("log", [](std::string msg) {
-        // Replaced std::print with std::cout
-        std::cout << "\r\n[\x1b[92m-\x1b[0m]: " << msg << "\r\n" << std::flush;
+        // Uses the dynamic Success color from the Theme
+        std::cout << "\r\n[" 
+                  << dais::core::handlers::Theme::SUCCESS << "-" 
+                  << dais::core::handlers::Theme::RESET << "] " 
+                  << msg << "\r\n" << std::flush;
     });
 }
 
@@ -73,8 +76,8 @@ namespace dais::core {
         
         // Validation
         if (path.empty() || !fs::exists(p) || !fs::is_directory(p)) {
-            // Replaced std::print(stderr) with std::cerr
-            std::cerr << "[\x1b[93m-\x1b[0m] Warning: Plugin path '" << path << "' invalid. Skipping Python extensions.\n";
+            std::cerr << "[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
+                      << "] Warning: Plugin path '" << path << "' invalid. Skipping Python extensions.\n";
             return;
         }
         std::string abs_path = fs::absolute(p).string();
@@ -96,13 +99,13 @@ namespace dais::core {
                     py::module_ plugin = py::module_::import(module_name.c_str());
                     loaded_plugins_.push_back(plugin);
                     
-                    // Replaced std::print with std::cout
-                    std::cout << "[\x1b[92m-\x1b[0m] Loaded .py extension: " << module_name << "\n";
+                    std::cout << "[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET 
+                              << "] Loaded .py extension: " << module_name << "\n";
                 }
             }
         } catch (const std::exception& e) {
-            // Replaced std::print(stderr) with std::cerr
-            std::cerr << "[\x1b[91m-\x1b[0m] Error, failed to load extensions: " << e.what() << "\n";
+            std::cerr << "[" << handlers::Theme::ERROR << "-" << handlers::Theme::RESET 
+                      << "] Error, failed to load extensions: " << e.what() << "\n";
         }
     }
 
@@ -120,19 +123,43 @@ namespace dais::core {
 
             // --- SETTINGS LOADING ---
 
-            // SHOW_LOGO
+            // 1. SHOW_LOGO
             if (py::hasattr(conf_module, "SHOW_LOGO")) {
                 config_.show_logo = conf_module.attr("SHOW_LOGO").cast<bool>();
-
-                // Debug print for startup (can be removed in prod)
-                if (config_.show_logo) 
-                    std::cout << "[\x1b[92m-\x1b[0m] SHOW_LOGO = " << std::boolalpha << config_.show_logo << "\n";
-                else 
-                    std::cout << "[\x1b[91m-\x1b[0m] SHOW_LOGO = " << std::boolalpha << config_.show_logo << "\n";
             }
+
+            // 2. THEME LOADING
+            if (py::hasattr(conf_module, "THEME")) {
+                py::dict theme = conf_module.attr("THEME").cast<py::dict>();
+                
+                // Helper lambda to safely get string from dict
+                auto load_color = [&](const char* key, std::string& target) {
+                    if (theme.contains(key)) {
+                        target = theme[key].cast<std::string>();
+                    }
+                };
+
+                load_color("RESET", handlers::Theme::RESET);
+                load_color("STRUCTURE", handlers::Theme::STRUCTURE);
+                load_color("UNIT", handlers::Theme::UNIT);
+                load_color("VALUE", handlers::Theme::VALUE);
+                load_color("ESTIMATE", handlers::Theme::ESTIMATE);
+                load_color("DIR_NAME", handlers::Theme::DIR_NAME);
+                load_color("SYMLINK", handlers::Theme::SYMLINK);
+                load_color("LOGO", handlers::Theme::LOGO);
+                load_color("SUCCESS", handlers::Theme::SUCCESS);
+                load_color("WARNING", handlers::Theme::WARNING);
+                load_color("ERROR", handlers::Theme::ERROR);
+            }
+
+            // Debug Print
+            std::cout << "[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET 
+                      << "] Config Loaded. SHOW_LOGO = " << std::boolalpha << config_.show_logo << "\n";
+
         } catch (const std::exception& e) {
             // Safe fallback if config is missing
-            std::cout << "[91m-\x1b[0m] No config.py found (or error reading it). Using defaults.\n";
+            std::cout << "[" << handlers::Theme::ERROR << "-" << handlers::Theme::RESET 
+                      << "] No config.py found (or error reading it). Using defaults.\n";
         }
     }
 
@@ -147,7 +174,6 @@ namespace dais::core {
                 try {
                     plugin.attr(hook_name.c_str())(data);
                 } catch (const std::exception& e) {
-                    // Replaced std::print(stderr) with std::cerr
                     std::cerr << "Error in plugin: " << e.what() << "\n";
                 }
             }
@@ -198,8 +224,12 @@ namespace dais::core {
         if (!pty_.start()) return;
 
         running_ = true;
-        // \r\n is needed because terminal is in RAW mode
-        std::cout << "<DAIS> has been started. Type ':q' or ':exit' to exit.\r\n" << std::flush;
+        
+        // Rebranded Startup Message with Configured Theme
+        std::cout << "\r\n[" 
+                  << dais::core::handlers::Theme::SUCCESS << "-" 
+                  << dais::core::handlers::Theme::RESET << "]" 
+                  << " DAIS has been started. Type ':q' or ':exit' to exit.\r\n" << std::flush;
 
         // Spawn the output reader thread (Child -> Screen)
         std::thread output_thread(&Engine::forward_shell_output, this);
@@ -212,7 +242,11 @@ namespace dais::core {
         
         waitpid(pty_.get_child_pid(), nullptr, 0);
         pty_.stop();
-        std::cout << "\r\n<DAIS> Session ended.\n" << std::flush;
+        
+        std::cout << "\r\n[" 
+                  << dais::core::handlers::Theme::ERROR << "-" 
+                  << dais::core::handlers::Theme::RESET << "]" 
+                  << " Session ended.\n" << std::flush;
     }
 
     /**
@@ -276,8 +310,9 @@ namespace dais::core {
                         if (at_line_start_) {
                             if (c != '\n' && c != '\r') {
                                 if (config_.show_logo) {
-                                    const char* dais = "[\x1b[95m-\x1b[0m] ";
-                                    write(STDOUT_FILENO, dais, std::strlen(dais));
+                                    // Use dynamic strings from Theme
+                                    std::string logo_str = "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
                                     at_line_start_ = false;
                                 }
                             }
@@ -411,7 +446,7 @@ namespace dais::core {
             if (text_start != std::string_view::npos) {
                 final_output.append(prompt_payload.substr(0, text_start));
                 if (config_.show_logo) {
-                    final_output += "[\x1b[95m-\x1b[0m] ";
+                    final_output += "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
                 }
                 final_output.append(prompt_payload.substr(text_start));
             } else {

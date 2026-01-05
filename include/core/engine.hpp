@@ -1,12 +1,12 @@
 #pragma once
 #include "core/session.hpp"
+#include "core/command_handlers.hpp"
+#include <pybind11/embed.h>
 #include <atomic>
 #include <string_view>
 #include <string>
 #include <vector>
 #include <filesystem>
-#include <pybind11/embed.h>
-#include <core/command_handlers.hpp>
 
 namespace py = pybind11;
 
@@ -55,5 +55,4 @@ namespace dais::core {
          */
         void sync_child_cwd();
     };
-
 }
