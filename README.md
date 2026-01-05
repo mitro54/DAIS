@@ -8,7 +8,7 @@
 - Core will be written in C++, that will support Python scripts as extensions to the core. 
 
 ## Scope
-- Projects scope is to create a helpful extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
+- Projects scope is to create a helpful open source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
 - This project will use present technologies and as an open-source, allows others to contribute their ideas and features to it as well.
 - Allows Python scripts so other Data / AI oriented people can create plugins in the language they are most confident in.
 
@@ -19,7 +19,7 @@ Why not, terminals should be smarter
 ### 1. Install dependencies
 #### Ubuntu 24.04 LTS
 - `sudo apt update`
-- `sudo apt install build-essential cmake python3-dev g++-14`
+- `sudo apt install build-essential cmake python3-dev g++-13`
 #### macOS
 - `xcode-select --install`
 - `brew install cmake python`
@@ -33,8 +33,11 @@ Why not, terminals should be smarter
 - `cd build`
 
 ### 4. Run cmake and make
-- `cmake ..` or `cmake -DCMAKE_CXX_COMPILER=g++-14 ..` to make sure it uses GCC 14 for C++23 (Linux)
+- `cmake ..` or `cmake -DCMAKE_CXX_COMPILER=g++-13 ..` to make sure it uses at least GCC 13 for C++20 (Linux)
 - `make`
 
-### 5. Run it
+### 4.1 (Optional) Install the DASH command system-wide
+`sudo make install`, this allows you to run this project with `DASH` from anywhere in terminal!
+
+### 5. Run it (if you did not do 4.1)
 `./DASH`
