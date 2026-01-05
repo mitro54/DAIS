@@ -94,7 +94,7 @@ namespace dash::core::handlers {
             return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows/1000000.0, Theme::UNIT, "M R");
         if (rows > 1000) 
             return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows/1000.0, Theme::UNIT, "k R");
-        return std::format("{}{}{}{}{}", tilde, Theme::VALUE, rows, Theme::UNIT, "R");
+        return std::format("{}{}{}{}{}", tilde, Theme::VALUE, rows, Theme::UNIT, " R");
     }
 
     // ==================================================================================
@@ -187,7 +187,7 @@ namespace dash::core::handlers {
                             Theme::STRUCTURE, // Comma
                             row_str,
                             Theme::STRUCTURE, // Comma
-                            Theme::VALUE, stats.max_cols, Theme::UNIT, "C");
+                            Theme::VALUE, stats.max_cols, Theme::UNIT, " C");
                     } else {
                         info = size_str;
                     }
