@@ -1,11 +1,12 @@
 #pragma once
-
 #include "core/session.hpp"
 #include <atomic>
 #include <string_view>
 #include <string>
 #include <vector>
+#include <filesystem>
 #include <pybind11/embed.h>
+#include <core/command_handlers.hpp>
 
 namespace py = pybind11;
 
@@ -27,6 +28,10 @@ namespace dash::core {
         std::atomic<bool> running_;
         std::atomic<bool> at_line_start_{true};
         Config config_;
+        std::filesystem::path shell_cwd_ = std::filesystem::current_path();
+
+        // Track the active command string (e.g., "ls", "git status")
+        std::string current_command_;
 
         // modifying output
         std::string pending_output_buffer_;

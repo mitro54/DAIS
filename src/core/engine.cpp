@@ -1,4 +1,5 @@
 #include "core/engine.hpp"
+#include "core/command_handlers.hpp"
 #include <print>
 #include <cstring> // for std::strlen
 #include <thread>
@@ -211,12 +212,52 @@ namespace dash::core {
 
                     // Check for Enter key (\r or \n)
                     if (c == '\r' || c == '\n') {
+                        current_command_ = cmd_accumulator; 
                         // Check if the accumulated string matches any of our commands
                         if (cmd_accumulator == "ls") intercepting = true;
 
                         if (cmd_accumulator == ":q" || cmd_accumulator == ":exit") {
                             running_ = false;
                             kill(pty_.get_child_pid(), SIGHUP);
+                        }
+
+                        // 3. Track 'cd' to keep shell_cwd_ in sync
+                        // We check if it starts with "cd" followed by space or is just "cd"
+                        if (cmd_accumulator == "cd" || cmd_accumulator.starts_with("cd ")) {
+                            std::string path_arg;
+                            if (cmd_accumulator.length() > 3) {
+                                path_arg = cmd_accumulator.substr(3); // Grab "folder" from "cd folder"
+                            }
+
+                            std::filesystem::path new_path;
+
+                            if (path_arg.empty()) {
+                                // "cd" -> Go Home
+                                const char* home = std::getenv("HOME");
+                                if (home) new_path = std::filesystem::path(home);
+                            } else {
+                                // Resolve path
+                                new_path = path_arg;
+                            }
+
+                            // If relative, combine with current. If absolute, use as is.
+                            if (new_path.is_relative()) {
+                                new_path = shell_cwd_ / new_path;
+                            }
+
+                            // Normalize (resolve ".." and ".")
+                            // Note: C++17 'weakly_canonical' helps resolve ".." without crashing if file missing, 
+                            // but 'canonical' is stricter and follows symlinks. 
+                            try {
+                                if (std::filesystem::exists(new_path) && std::filesystem::is_directory(new_path)) {
+                                    // Use weakly_canonical to clean up "folder/../folder" mess
+                                    shell_cwd_ = std::filesystem::canonical(new_path);
+                                    // Debug print to verify tracking (remove later)
+                                    // std::print("\r\n[DEBUG] CWD is now: {}\r\n", shell_cwd_.string());
+                                }
+                            } catch (...) {
+                                // Access denied or invalid path - ignore update, assume shell failed too
+                            }
                         }
                         trigger_python_hook("on_command", cmd_accumulator);
                         // Clear buffer for the next command
@@ -248,54 +289,48 @@ namespace dash::core {
 
     std::string Engine::process_output(std::string_view raw_output) {
         std::string final_output;
-        final_output.reserve(raw_output.size() * 2);
+        final_output.reserve(raw_output.size() * 3);
 
-        const std::string delimiters = " \t\n\r"; 
-        size_t last_pos = 0;
-        
-        // Identify where the command output ends and the prompt begins,
-        // prompt is always the text after the very last newline
         size_t last_newline = raw_output.find_last_of("\n");
         if (last_newline == std::string_view::npos) last_newline = raw_output.length(); 
-        bool apply_formatting = true;
-        bool prompt_logo_inserted = false;
 
-        size_t start = raw_output.find_first_not_of(delimiters, 0);
-
-        while (start != std::string_view::npos) {
-            // Append whitespace exactly as is
-            final_output.append(raw_output.substr(last_pos, start - last_pos));
-
-            // Find end of the current token
-            size_t end = raw_output.find_first_of(delimiters, start);
-            if (end == std::string_view::npos) end = raw_output.length();
-
-            std::string_view token = raw_output.substr(start, end - start);
-
-            // If the current token starts after the last newline, it is part of the prompt
-            if (start > last_newline) {
-                apply_formatting = false;
-                
-                // Re-inject [-] once, right before the prompt starts
-                if (!prompt_logo_inserted && config_.show_logo) {
-                    final_output += "[\x1b[95m-\x1b[0m] "; 
-                    prompt_logo_inserted = true;
-                }
-            }
-
-            if (apply_formatting) {
-                final_output += "| ";
-                final_output.append(token);
-                final_output += " |";
-            } else {
-                final_output.append(token);
-            }
-            last_pos = end;
-            start = raw_output.find_first_not_of(delimiters, last_pos);
+        std::string_view content_payload = raw_output.substr(0, last_newline);
+        
+        std::string_view prompt_payload = "";
+        if (last_newline < raw_output.length()) {
+            prompt_payload = raw_output.substr(last_newline);
         }
 
-        // Append trailing whitespace
-        if (last_pos < raw_output.length()) final_output.append(raw_output.substr(last_pos));
+        std::string processed_content;
+        if (current_command_ == "ls") {
+            processed_content = handlers::handle_ls(content_payload, shell_cwd_);
+        } else {
+            processed_content = handlers::handle_generic(content_payload);
+        }
+
+        // 3. Grid Output
+        if (!processed_content.empty()) {
+            final_output += "\r\n"; 
+            final_output += processed_content;
+        }
+
+        // 4. Prompt Output
+        if (!prompt_payload.empty()) {
+            // FIX: Ensure cursor is at column 0 before prompt starts
+            final_output += "\r"; 
+
+            size_t text_start = prompt_payload.find_first_not_of("\r\n");
+            
+            if (text_start != std::string_view::npos) {
+                final_output.append(prompt_payload.substr(0, text_start));
+                if (config_.show_logo) {
+                    final_output += "[\x1b[95m-\x1b[0m] ";
+                }
+                final_output.append(prompt_payload.substr(text_start));
+            } else {
+                final_output.append(prompt_payload);
+            }
+        }
 
         return final_output;
     }
