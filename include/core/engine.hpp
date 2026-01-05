@@ -15,6 +15,8 @@ namespace dais::core {
 
     struct Config {
         bool show_logo = true;
+        // Default fallbacks in case config.py fails
+        std::vector<std::string> shell_prompts = {"$ ", "% ", "> ", "# "};
     };
 
     class Engine {

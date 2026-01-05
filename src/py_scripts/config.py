@@ -5,6 +5,18 @@
 # Toggle the "[-]" logo injection at the start of every line
 SHOW_LOGO = True
 
+# SHELL PROMPT DETECTION
+# DAIS needs to know what your shell prompt looks like to know when 'ls' has finished.
+# Common defaults are added below. If DAIS hangs on 'ls', add your prompt here.
+# NOTE: It is safer to include the trailing space if your prompt has one.
+SHELL_PROMPTS = [
+    "$ ",  # Bash / Zsh default (user)
+    "% ",  # Zsh default
+    "> ",  # Python / Windows default
+    "# ",  # Root default
+    "➜ "   # Starship / Oh-My-Zsh common arrow
+]
+
 # Centralized Color Palette (ANSI Escape Codes)
 # These values are read by the C++ engine at startup.
 THEME = {

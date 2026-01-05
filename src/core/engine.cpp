@@ -129,7 +129,18 @@ namespace dais::core {
                 config_.show_logo = conf_module.attr("SHOW_LOGO").cast<bool>();
             }
 
-            // 2. THEME LOADING
+            // 2. SHELL_PROMPTS
+            if (py::hasattr(conf_module, "SHELL_PROMPTS")) {
+                py::list prompts = conf_module.attr("SHELL_PROMPTS").cast<py::list>();
+                if (!prompts.empty()) {
+                    config_.shell_prompts.clear();
+                    for (auto item : prompts) {
+                        config_.shell_prompts.push_back(item.cast<std::string>());
+                    }
+                }
+            }
+
+            // 3. THEME LOADING
             if (py::hasattr(conf_module, "THEME")) {
                 py::dict theme = conf_module.attr("THEME").cast<py::dict>();
                 
@@ -255,67 +266,65 @@ namespace dais::core {
      * Handles "Output Interception" where we buffer output (e.g., for 'ls') 
      * to modify it before displaying.
      */
-    void Engine::forward_shell_output() {
+void Engine::forward_shell_output() {
         std::array<char, BUFFER_SIZE> buffer;
         struct pollfd pfd{};
         pfd.fd = pty_.get_master_fd();
         pfd.events = POLLIN;
 
         while (true) {
-            // Poll with timeout to allow checking 'running_' flag
             int ret = poll(&pfd, 1, 100);
-            if (ret < 0) break; // Error
+            if (ret < 0) break;
             if (ret == 0) {
-                if (!running_) continue; // Just a timeout check
+                if (!running_) continue;
                 continue;
             }
 
-            if (pfd.revents & (POLLERR | POLLHUP)) {
-                break; // PTY closed (child exited)
-            }
+            if (pfd.revents & (POLLERR | POLLHUP)) break;
 
             if (pfd.revents & POLLIN) {
-                ssize_t bytes_read = read(
-                    pty_.get_master_fd(),
-                    buffer.data(),
-                    buffer.size()
-                );
-
+                ssize_t bytes_read = read(pty_.get_master_fd(), buffer.data(), buffer.size());
                 if (bytes_read <= 0) break;
 
                 // --- INTERCEPTION MODE ---
-                // If the input loop triggered interception (e.g. for 'ls'),
-                // we accumulate data until we see a prompt, then process it all at once.
                 if (intercepting) {
                     std::string_view chunk(buffer.data(), bytes_read);
                     pending_output_buffer_ += chunk;
                     
-                    // Simple heuristic to detect when command output has finished (prompt reappears)
-                    if (pending_output_buffer_.find("$ ") != std::string::npos ||
-                        pending_output_buffer_.find("> ") != std::string::npos) {
-                            
-                            std::string modified = process_output(pending_output_buffer_);
-                            write(STDOUT_FILENO, modified.c_str(), modified.size());
-                            
-                            // Reset state
-                            intercepting = false;
-                            pending_output_buffer_.clear();
+                    // PROMPT DETECTION
+                    // we check if the buffer ENDS with one of the known prompts.
+                    bool prompt_detected = false;
+                    
+                    for (const auto& prompt : config_.shell_prompts) {
+                        if (pending_output_buffer_.size() >= prompt.size()) {
+                            // Check tail of buffer
+                            if (pending_output_buffer_.compare(
+                                    pending_output_buffer_.size() - prompt.size(), 
+                                    prompt.size(), 
+                                    prompt) == 0) {
+                                prompt_detected = true;
+                                break;
+                            }
                         }
+                    }
+
+                    if (prompt_detected) {
+                        std::string modified = process_output(pending_output_buffer_);
+                        write(STDOUT_FILENO, modified.c_str(), modified.size());
+                        
+                        intercepting = false;
+                        pending_output_buffer_.clear();
+                    }
                 } 
                 // --- PASS-THROUGH MODE ---
                 else {
                     for (ssize_t i = 0; i < bytes_read; ++i) {
                         char c = buffer[i];
-
-                        // Logo injection logic at line starts
                         if (at_line_start_) {
-                            if (c != '\n' && c != '\r') {
-                                if (config_.show_logo) {
-                                    // Use dynamic strings from Theme
-                                    std::string logo_str = "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                    at_line_start_ = false;
-                                }
+                            if (c != '\n' && c != '\r' && config_.show_logo) {
+                                std::string logo_str = "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                at_line_start_ = false;
                             }
                         }
                         write(STDOUT_FILENO, &c, 1);
