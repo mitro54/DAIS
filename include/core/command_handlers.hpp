@@ -166,11 +166,16 @@ namespace dais::core::handlers {
 
     /** @brief Formats row counts, adding a tilde (~) and specific color if the count is estimated. */
     inline std::string fmt_rows(size_t rows, bool estimated) {
+        // Compensation for the observed overestimation (~9-10%)
+        if (estimated) {
+            rows = static_cast<size_t>(rows * 0.92);
+        }
         std::string tilde = estimated ? std::string(Theme::ESTIMATE) + "~" : "";
-        if (rows > 1000000) 
-            return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows/1000000.0, Theme::UNIT, "M R");
-        if (rows > 1000) 
-            return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows/1000.0, Theme::UNIT, "k R");
+
+        if (rows >= 1000000)
+            return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows / 1000000.0, Theme::UNIT, "M R");
+        if (rows >= 1000)
+            return std::format("{}{}{:.1f}{}{}", tilde, Theme::VALUE, rows / 1000.0, Theme::UNIT, "k R");
         return std::format("{}{}{}{}{}", tilde, Theme::VALUE, rows, Theme::UNIT, " R");
     }
 
