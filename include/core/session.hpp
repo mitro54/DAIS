@@ -18,6 +18,10 @@ namespace dais::core {
         // Clean cleanup of file descriptors and processes
         void stop();
 
+        // Updates the PTY size (rows/cols) to match the physical window.
+        // Handles "Safe Width" calculation for the logo injection.
+        void resize(int rows, int cols);
+
         // Getters
         [[nodiscard]] int get_master_fd() const { return master_fd_; }
         [[nodiscard]] pid_t get_child_pid() const { return child_pid_; }

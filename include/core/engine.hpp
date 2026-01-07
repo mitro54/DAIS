@@ -26,6 +26,12 @@ namespace dais::core {
         void run();
         void load_extensions(const std::string& path);
         void load_configuration(const std::string& path);
+        
+        // Helper to allow main.cpp to resize window
+        void resize_window(int rows, int cols) {
+            pty_.resize(rows, cols);
+        }
+
     private:
         PTYSession pty_;
         std::atomic<bool> running_;

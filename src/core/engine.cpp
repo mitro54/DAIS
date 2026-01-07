@@ -24,6 +24,9 @@
 #include <atomic>
 #include <iomanip> // for std::boolalpha
 #include <mutex>
+#include <cerrno>      // errno
+#include <sys/ioctl.h> // TIOCGWINSZ
+#include <unistd.h>    // STDOUT_FILENO
 
 // --- OS Specific Includes for CWD Sync ---
 // We need low-level OS headers to inspect the child process's state directly.
@@ -81,7 +84,6 @@ namespace dais::core {
                       << "] Warning: Plugin path '" << path << "' invalid. Skipping Python extensions.\n";
             return;
         }
-        std::string abs_path = fs::absolute(p).string();
 
         try {
             // Add the plugin path to Python's sys.path
@@ -235,6 +237,13 @@ namespace dais::core {
     void Engine::run() {
         if (!pty_.start()) return;
 
+        // We must sync the window size AFTER the PTY has started (so master_fd is valid),
+        // but BEFORE we start forwarding output. This prevents the "wrapping glitch" on startup.
+        struct winsize w;
+        if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &w) != -1) {
+            pty_.resize(w.ws_row, w.ws_col);
+        }
+
         running_ = true;
         
         // Rebranded Startup Message with Configured Theme
@@ -266,7 +275,7 @@ namespace dais::core {
      * Handles "Output Interception" where we buffer output (e.g., for 'ls') 
      * to modify it before displaying.
      */
-void Engine::forward_shell_output() {
+    void Engine::forward_shell_output() {
         std::array<char, BUFFER_SIZE> buffer;
         struct pollfd pfd{};
         pfd.fd = pty_.get_master_fd();
@@ -274,7 +283,12 @@ void Engine::forward_shell_output() {
 
         while (true) {
             int ret = poll(&pfd, 1, 100);
-            if (ret < 0) break;
+
+            if (ret < 0) {
+                if (errno == EINTR) continue; // Resize signal received, just continue
+                break; // Real error, exit loop
+            }
+
             if (ret == 0) {
                 if (!running_) continue;
                 continue;
@@ -350,7 +364,11 @@ void Engine::forward_shell_output() {
 
         while (running_) {
             int ret = poll(&pfd, 1, -1);
-            if (ret < 0) break;
+
+            if (ret < 0) {
+                if (errno == EINTR) continue; // Signal interrupted, keep going
+                break;
+            }
 
             if (pfd.revents & POLLIN) {
                 ssize_t n = read(STDIN_FILENO, buffer.data(), buffer.size());

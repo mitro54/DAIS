@@ -103,6 +103,28 @@ namespace dais::core {
     }
 
     /**
+     * @brief Resizes the virtual window size of the PTY.
+     * * [VISUAL COMPENSATION FIX]
+     * Since DAIS injects a 4-character logo ("[-] ") at the start of every line,
+     * we must tell the inner shell that the window is 4 columns narrower than it 
+     * physically is. This ensures the shell wraps text *before* it hits the 
+     * physical edge, leaving room for the logo.
+     * * @param rows New number of rows (height).
+     * @param cols New number of columns (width).
+     */
+    void PTYSession::resize(int rows, int cols) {
+        struct winsize ws{};
+        ws.ws_row = static_cast<unsigned short>(rows);
+        
+        // Subtract 4 columns to reserve space for the logo.
+        // Safety check: ensure we don't underflow if the window is tiny.
+        unsigned short safe_cols = (cols > 10) ? (cols - 4) : cols;
+        ws.ws_col = static_cast<unsigned short>(safe_cols);
+        
+        ioctl(master_fd_, TIOCSWINSZ, &ws);
+    }
+
+    /**
      * @brief Configures the standard input for Raw Mode.
      * * Raw mode disables:
      * - ECHO: Characters typed are not printed immediately (the shell handles echo).
