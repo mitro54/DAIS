@@ -9,6 +9,7 @@
 #pragma once
 
 #include "core/file_analyzer.hpp"
+#include "core/thread_pool.hpp"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,7 +20,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <cctype>
-#include <future> // Added for std::async and std::future
+#include <future> std::async and std::future
 
 namespace dais::core::handlers {
 
@@ -220,9 +221,11 @@ namespace dais::core::handlers {
             size_t visible_len;
         };
         
-        // --- MULTITHREADING OPTIMIZATION ---
-        // Instead of processing files sequentially, we launch async tasks.
-        // This allows I/O intensive operations (analyze_path) to run in parallel.
+        // --- THREAD POOL ---
+        // We use 64 threads. This is aggressive enough to saturate I/O (giving max speed)
+        // but robust enough to prevent OS crashes on huge directories (100k+ files).
+        static dais::core::utils::ThreadPool pool(64);
+
         std::vector<std::future<GridItem>> futures;
         std::vector<GridItem> grid_items;
         bool first_token = true;
@@ -246,10 +249,8 @@ namespace dais::core::handlers {
                 continue;
             }
 
-            // Launch Async Analysis Task
-            // std::launch::async forces a new thread (or reuse from pool implementation)
-            // ensuring true parallelism for I/O operations.
-            futures.push_back(std::async(std::launch::async, [clean_name, item_raw, cwd]() -> GridItem {
+            // Enqueue Analysis Task to Thread Pool
+            futures.push_back(pool.enqueue([clean_name, item_raw, cwd]() -> GridItem {
                 // 3. Analyze File (Thread Safe)
                 std::filesystem::path full_path = cwd / clean_name;
                 auto stats = dais::utils::analyze_path(full_path.string());
@@ -300,10 +301,14 @@ namespace dais::core::handlers {
         }
 
         // --- COLLECT RESULTS ---
-        // Wait for all threads to finish and collect results in order.
-        // This ensures the output is displayed only when scanning is 100% complete.
+        // Wait for workers to finish processing. 
+        // Order is preserved because we pushed futures in order.
         for (auto& f : futures) {
-            grid_items.push_back(f.get());
+            try {
+                grid_items.push_back(f.get());
+            } catch (...) {
+                // Fallback in unlikely event of thread error, ignore item to prevent crash
+            }
         }
 
         if (grid_items.empty()) return "";
@@ -319,7 +324,6 @@ namespace dais::core::handlers {
 
         for (const auto& item : grid_items) {
             // " | " + Content + " | "
-            // We use 4 extra chars for the borders/spacing logic below
             size_t cell_len = item.visible_len + 4; 
             int gap = (current_line_len > 0) ? 1 : 0;
 
