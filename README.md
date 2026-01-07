@@ -2,13 +2,14 @@
 ## ... [<span style="color:#ff00ff">-</span>] DAIS
 
 - In researching / early development stage
+- Currently meets the MVP requirements stated in roadmap.md
 
 ## What
 - DAIS is a PTY (pseudoterminal) shell wrapper. 
-- Core will be written in C++, that will support Python scripts as extensions to the core. 
+- Core is written in C++, that will support Python scripts as extensions.
 
 ## Scope
-- Projects scope is to create a helpful open source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
+- Projects scope is to create a helpful open-source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
 - This project will use present technologies and as an open-source, allows others to contribute their ideas and features to it as well.
 - Allows Python scripts so other Data / AI oriented people can create plugins in the language they are most confident in.
 
