@@ -20,7 +20,7 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <cctype>
-#include <future> std::async and std::future
+#include <future> // std::async and std::future
 
 namespace dais::core::handlers {
 
