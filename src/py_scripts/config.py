@@ -37,6 +37,23 @@ THEME = {
 }
 
 # ==================================================================================
+# FILE EXTENSION DETECTION
+# ==================================================================================
+# Customize which file extensions are recognized as text files or data files.
+# Text files show: size, row count, max column width
+# Data files show: size, row count, column count (uses data_file template)
+
+TEXT_EXTENSIONS = [
+    ".txt", ".cpp", ".hpp", ".c", ".h", ".py", ".md", ".cmake",
+    ".log", ".sh", ".ini", ".js", ".ts", ".html", ".css", ".xml",
+    ".yml", ".yaml", ".conf", ".toml", ".rs", ".go", ".java", ".rb"
+]
+
+DATA_EXTENSIONS = [
+    ".csv", ".tsv", ".json"
+]
+
+# ==================================================================================
 # LS OUTPUT FORMATTING
 # ==================================================================================
 # Customize how 'ls' output is displayed using format templates.

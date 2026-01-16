@@ -178,6 +178,22 @@ namespace dais::core {
                 load_fmt("error", config_.ls_fmt_error);
             }
 
+            // 5. FILE EXTENSION LISTS
+            if (py::hasattr(conf_module, "TEXT_EXTENSIONS")) {
+                py::list ext_list = conf_module.attr("TEXT_EXTENSIONS").cast<py::list>();
+                dais::utils::FileExtensions::text.clear();
+                for (const auto& item : ext_list) {
+                    dais::utils::FileExtensions::text.push_back(item.cast<std::string>());
+                }
+            }
+            if (py::hasattr(conf_module, "DATA_EXTENSIONS")) {
+                py::list ext_list = conf_module.attr("DATA_EXTENSIONS").cast<py::list>();
+                dais::utils::FileExtensions::data.clear();
+                for (const auto& item : ext_list) {
+                    dais::utils::FileExtensions::data.push_back(item.cast<std::string>());
+                }
+            }
+
             // Debug Print
             std::cout << "[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET 
                       << "] Config Loaded. SHOW_LOGO = " << std::boolalpha << config_.show_logo << "\n";

@@ -37,6 +37,24 @@ namespace dais::utils {
         bool is_estimated = false;  ///< True if row count is extrapolated due to file size limits
     };
 
+    /**
+     * @brief Configurable file extension lists for text and data file detection.
+     * Loaded from config.py at startup. Uses inline static for global mutable state.
+     */
+    struct FileExtensions {
+        // Text file extensions (code, markup, config files)
+        inline static std::vector<std::string> text = {
+            ".txt", ".cpp", ".hpp", ".py", ".md", ".cmake",
+            ".log", ".sh", ".ini", ".js", ".ts", ".html",
+            ".css", ".xml", ".yml", ".conf", ".c", ".h"
+        };
+        
+        // Data file extensions (structured data formats)
+        inline static std::vector<std::string> data = {
+            ".csv", ".tsv", ".json"
+        };
+    };
+
     // --- Performance Configuration ---
     // Limit to prevent UI freezes when scanning large files.
     constexpr size_t MAX_SCAN_BYTES = 32 * 1024; // Scan max 32KB
@@ -79,16 +97,14 @@ namespace dais::utils {
             
             std::string ext = p.extension().string();
 
-            // Detect Data Files (structured data formats)
-            stats.is_data = (ext == ".csv" || ext == ".tsv" || ext == ".json");
+            // Detect Data Files using configurable extension list
+            stats.is_data = std::find(FileExtensions::data.begin(), 
+                                      FileExtensions::data.end(), ext) != FileExtensions::data.end();
 
-            // Extension-based text detection whitelist
-            stats.is_text = (ext == ".txt" || ext == ".cpp" || ext == ".hpp" || 
-                             ext == ".py"  || ext == ".md"  || ext == ".cmake" ||
-                             ext == ".log" || ext == ".sh"  || ext == ".ini" ||
-                             ext == ".js"  || ext == ".ts"  || ext == ".html" ||
-                             ext == ".css" || ext == ".xml" || ext == ".yml" || 
-                             ext == ".conf" || stats.is_data);
+            // Detect Text Files using configurable extension list (data files are also text)
+            stats.is_text = stats.is_data || 
+                            std::find(FileExtensions::text.begin(), 
+                                      FileExtensions::text.end(), ext) != FileExtensions::text.end();
 
             // Skip heavy I/O scanning if empty or binary
             if (!stats.is_text || stats.size_bytes == 0) return stats;
