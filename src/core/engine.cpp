@@ -173,6 +173,7 @@ namespace dais::core {
                 };
                 load_fmt("directory", config_.ls_fmt_directory);
                 load_fmt("text_file", config_.ls_fmt_text_file);
+                load_fmt("data_file", config_.ls_fmt_data_file);
                 load_fmt("binary_file", config_.ls_fmt_binary_file);
                 load_fmt("error", config_.ls_fmt_error);
             }
@@ -509,6 +510,7 @@ namespace dais::core {
             handlers::LSFormats formats;
             formats.directory = config_.ls_fmt_directory;
             formats.text_file = config_.ls_fmt_text_file;
+            formats.data_file = config_.ls_fmt_data_file;
             formats.binary_file = config_.ls_fmt_binary_file;
             formats.error = config_.ls_fmt_error;
             

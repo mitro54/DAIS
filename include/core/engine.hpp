@@ -22,10 +22,11 @@ namespace dais::core {
         // Data placeholders: {name}, {size}, {rows}, {cols}, {count}
         // Color placeholders: {RESET}, {STRUCTURE}, {UNIT}, {VALUE}, {ESTIMATE}, {TEXT}, {SYMLINK}
         // Note: {size} and {rows} include their own coloring (VALUE/UNIT for size, ESTIMATE for ~ prefix)
-        std::string ls_fmt_directory   = "{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})";
-        std::string ls_fmt_text_file   = "{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
-        std::string ls_fmt_binary_file = "{name} {STRUCTURE}({size}{STRUCTURE})";
-        std::string ls_fmt_error       = "{name}";
+        std::string ls_fmt_directory   = "{TEXT}{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})";
+        std::string ls_fmt_text_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
+        std::string ls_fmt_data_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
+        std::string ls_fmt_binary_file = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE})";
+        std::string ls_fmt_error       = "{TEXT}{name}";
     };
 
     class Engine {

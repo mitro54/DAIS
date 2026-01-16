@@ -33,7 +33,7 @@ namespace dais::utils {
         size_t max_cols = 0;        
 
         bool is_text = false;       ///< True if heuristics suggest a readable text file
-        bool is_csv = false;        ///< True if extension matches .csv or .tsv
+        bool is_data = false;       ///< True if file is a data file (.csv, .tsv, .json)
         bool is_estimated = false;  ///< True if row count is extrapolated due to file size limits
     };
 
@@ -79,16 +79,16 @@ namespace dais::utils {
             
             std::string ext = p.extension().string();
 
-            // Detect Data Files
-            stats.is_csv = (ext == ".csv" || ext == ".tsv");
+            // Detect Data Files (structured data formats)
+            stats.is_data = (ext == ".csv" || ext == ".tsv" || ext == ".json");
 
             // Extension-based text detection whitelist
             stats.is_text = (ext == ".txt" || ext == ".cpp" || ext == ".hpp" || 
                              ext == ".py"  || ext == ".md"  || ext == ".cmake" ||
-                             ext == ".json"|| ext == ".log" || ext == ".sh" ||
+                             ext == ".log" || ext == ".sh"  || ext == ".ini" ||
                              ext == ".js"  || ext == ".ts"  || ext == ".html" ||
                              ext == ".css" || ext == ".xml" || ext == ".yml" || 
-                             ext == ".ini" || ext == ".conf"|| stats.is_csv);
+                             ext == ".conf" || stats.is_data);
 
             // Skip heavy I/O scanning if empty or binary
             if (!stats.is_text || stats.size_bytes == 0) return stats;
@@ -116,22 +116,22 @@ namespace dais::utils {
                     stats.rows++;                 
                     // Logic for the very first line (CSV columns or Text width)
                     if (!first_line_scanned) {
-                        // For CSV, columns = delimiters + 1. We counted delimiters below, so add 1 now.
-                        if (stats.is_csv) stats.max_cols++; 
+                        // For data files, columns = delimiters + 1. We counted delimiters below, so add 1 now.
+                        if (stats.is_data) stats.max_cols++; 
                         // For Text, simply take the length
                         else if (current_line_len > stats.max_cols) stats.max_cols = current_line_len;
 
                         first_line_scanned = true;
                     } 
                     // Logic for subsequent lines (Text width only)
-                    else if (!stats.is_csv) {
+                    else if (!stats.is_data) {
                         if (current_line_len > stats.max_cols) stats.max_cols = current_line_len;
                     }
                     current_line_len = 0;
                 } else {
                     current_line_len++;
-                    // If first line of a CSV, count delimiters
-                    if (!first_line_scanned && stats.is_csv && c == delimiter) {
+                    // If first line of a data file, count delimiters
+                    if (!first_line_scanned && stats.is_data && c == delimiter) {
                         stats.max_cols++;
                     }
                 }

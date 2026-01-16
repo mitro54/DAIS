@@ -172,10 +172,11 @@ namespace dais::core::handlers {
      *   {RESET}, {STRUCTURE}, {UNIT}, {VALUE}, {ESTIMATE}, {TEXT}, {SYMLINK}
      */
     struct LSFormats {
-        // Default templates matching original hardcoded output
+        // Default templates
         // Note: {size} includes VALUE/UNIT coloring, {rows} includes ESTIMATE coloring for ~
         std::string directory   = "{TEXT}{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})";
         std::string text_file   = "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE}, {VALUE}{rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
+        std::string data_file   = "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE}, {VALUE}{rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
         std::string binary_file = "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE})";
         std::string error       = "{TEXT}{name}";
     };
@@ -353,17 +354,28 @@ namespace dais::core::handlers {
                             {"count", std::to_string(stats.item_count)}
                         });
                     } else {
-                        // FILE: Use text_file or binary_file template
+                        // FILE: Use text_file, data_file, or binary_file template
                         std::string size_str = fmt_size(stats.size_bytes);
 
                         if (stats.is_text) {
                             std::string row_str = fmt_rows(stats.rows, stats.is_estimated);
-                            display = apply_template(formats.text_file, {
-                                {"name", clean_name},
-                                {"size", size_str},
-                                {"rows", row_str},
-                                {"cols", std::to_string(stats.max_cols)}
-                            });
+                            
+                            // Use data_file template for CSV/TSV/JSON files
+                            if (stats.is_data) {
+                                display = apply_template(formats.data_file, {
+                                    {"name", clean_name},
+                                    {"size", size_str},
+                                    {"rows", row_str},
+                                    {"cols", std::to_string(stats.max_cols)}
+                                });
+                            } else {
+                                display = apply_template(formats.text_file, {
+                                    {"name", clean_name},
+                                    {"size", size_str},
+                                    {"rows", row_str},
+                                    {"cols", std::to_string(stats.max_cols)}
+                                });
+                            }
                         } else {
                             display = apply_template(formats.binary_file, {
                                 {"name", clean_name},
