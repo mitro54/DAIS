@@ -287,10 +287,8 @@ namespace dais::core {
                 break; // Real error, exit loop
             }
 
-            if (ret == 0) {
-                if (!running_) continue;
-                continue;
-            }
+            // Poll timeout - no data available, continue polling
+            if (ret == 0) continue;
 
             if (pfd.revents & (POLLERR | POLLHUP)) break;
 

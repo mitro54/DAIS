@@ -221,9 +221,10 @@ namespace dais::core::handlers {
         };
         
         // --- THREAD POOL ---
-        // We use 64 threads. This is aggressive enough to saturate I/O (giving max speed)
-        // but robust enough to prevent OS crashes on huge directories (100k+ files).
-        static dais::core::utils::ThreadPool pool(64);
+        // Pool is created per-ls call: 64 threads during execution, cleaned up after.
+        // This maximizes parallelism for I/O-bound file scanning while avoiding
+        // resource waste when idle.
+        dais::core::utils::ThreadPool pool(64);
 
         std::vector<std::future<GridItem>> futures;
         std::vector<GridItem> grid_items;
