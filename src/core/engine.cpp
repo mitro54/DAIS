@@ -377,6 +377,34 @@ namespace dais::core {
                 for (ssize_t i = 0; i < n; ++i) {
                     char c = buffer[i];
 
+                    // --- ESCAPE SEQUENCE HANDLING ---
+                    // Arrow keys, function keys, etc. send multi-byte sequences starting with ESC (\x1b).
+                    // We must skip these from the accumulator but still forward them to the shell.
+                    if (c == '\x1b') {
+                        // Forward the entire escape sequence to the shell
+                        data_to_write += c;
+                        // Skip remaining bytes of the escape sequence
+                        // CSI sequences: ESC [ ... (terminated by a letter)
+                        if (i + 1 < n && buffer[i + 1] == '[') {
+                            data_to_write += buffer[++i]; // '['
+                            while (i + 1 < n && !std::isalpha(static_cast<unsigned char>(buffer[i + 1]))) {
+                                data_to_write += buffer[++i];
+                            }
+                            if (i + 1 < n) {
+                                data_to_write += buffer[++i]; // terminating letter
+                            }
+                        }
+                        continue; // Don't add to accumulator
+                    }
+
+                    // --- CTRL+C HANDLING ---
+                    // Clears the current line in the shell, so reset our accumulator too.
+                    if (c == '\x03') {
+                        cmd_accumulator.clear();
+                        data_to_write += c;
+                        continue;
+                    }
+
                     // Check for Enter key (\r or \n) indicating command submission
                     if (c == '\r' || c == '\n') {
                         // --- THREAD SAFETY: LOCK ---
@@ -412,8 +440,8 @@ namespace dais::core {
                     else if (c == 127 || c == '\b') {
                         if (!cmd_accumulator.empty()) cmd_accumulator.pop_back();
                     }
-                    // Accumulate characters
-                    else {
+                    // Accumulate only printable characters
+                    else if (std::isprint(static_cast<unsigned char>(c))) {
                         cmd_accumulator += c;
                     }
 

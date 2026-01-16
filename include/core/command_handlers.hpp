@@ -250,7 +250,7 @@ namespace dais::core::handlers {
             }
 
             // Enqueue Analysis Task to Thread Pool
-            futures.push_back(pool.enqueue([clean_name, item_raw, cwd]() -> GridItem {
+            futures.push_back(pool.enqueue([clean_name, cwd]() -> GridItem {
                 // 3. Analyze File (Thread Safe)
                 std::filesystem::path full_path = cwd / clean_name;
                 auto stats = dais::utils::analyze_path(full_path.string());
