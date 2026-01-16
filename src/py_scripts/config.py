@@ -60,7 +60,7 @@ THEME = {
 LS_FORMATS = {
     "directory":   "{TEXT}{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})",
     "text_file":   "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE}, {VALUE}{rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})",
-    "data_file":   "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE}, {VALUE}{rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}cols{STRUCTURE})",
+    "data_file":   "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE}, {VALUE}{rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})",
     "binary_file": "{TEXT}{name} {STRUCTURE}({VALUE}{size}{STRUCTURE})",
     "error":       "{TEXT}{name}",  # Shown when file analysis fails
 }
