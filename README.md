@@ -18,7 +18,7 @@
     - **Custom File Types**: Configure which extensions count as "text" or "data"
 
 ### Visual Customization
-DAIS allows you to style your file listing exactly how you want it—from minimal layouts to rich, icon-enhanced displays.
+DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, icon-enhanced displays.
 
 **Default look:**
 ![Default Style](docs/assets/ls_default.png)
