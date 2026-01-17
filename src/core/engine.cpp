@@ -767,7 +767,7 @@ namespace dais::core {
             sort_cfg.order = config_.ls_sort_order;
             sort_cfg.dirs_first = config_.ls_dirs_first;
             
-            processed_content = handlers::handle_ls(content_payload, shell_cwd_, formats, sort_cfg);
+            processed_content = handlers::handle_ls(content_payload, shell_cwd_, formats, sort_cfg, thread_pool_);
         } else {
             processed_content = handlers::handle_generic(content_payload);
         }

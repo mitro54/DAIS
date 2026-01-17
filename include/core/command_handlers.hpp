@@ -310,7 +310,8 @@ namespace dais::core::handlers {
         std::string_view raw_output, 
         const std::filesystem::path& cwd,
         const LSFormats& formats,
-        const LSSortConfig& sort_cfg
+        const LSSortConfig& sort_cfg,
+        utils::ThreadPool& pool
     ) {
         std::stringstream ss{std::string(raw_output)};
         std::string line;
@@ -336,10 +337,8 @@ namespace dais::core::handlers {
         };
         
         // --- THREAD POOL ---
-        // Pool is created per-ls call: 64 threads during execution, cleaned up after.
-        // This maximizes parallelism for I/O-bound file scanning while avoiding
-        // resource waste when idle.
-        dais::core::utils::ThreadPool pool(64);
+        // Uses singleton pool from Engine class for optimal performance.
+        // Pool is created once at startup and reused across all ls calls.
 
         std::vector<std::future<GridItem>> futures;
         std::vector<GridItem> grid_items;

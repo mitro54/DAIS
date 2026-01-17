@@ -1,6 +1,7 @@
 #pragma once
 #include "core/session.hpp"
 #include "core/command_handlers.hpp"
+#include "core/thread_pool.hpp"
 #include <pybind11/embed.h>
 #include <atomic>
 #include <string_view>
@@ -88,6 +89,11 @@ namespace dais::core {
         std::string pending_output_buffer_;
         std::atomic<bool> intercepting{false};
         std::string process_output(std::string_view raw_output);
+        
+        // Singleton thread pool for parallel file analysis (used by ls handler)
+        // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)
+        // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs
+        utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};
 
         // python state
         py::scoped_interpreter guard{}; 
