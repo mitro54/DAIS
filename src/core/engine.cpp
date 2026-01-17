@@ -540,6 +540,14 @@ namespace dais::core {
                         // Skip for internal commands (:) which are handled separately.
                         if (history_navigated_ && pty_.is_shell_idle() && !cmd_accumulator.empty() && 
                             !cmd_accumulator.starts_with(":")) {
+                            // First, erase the visual display (we echoed it during navigation)
+                            // This prevents double echo since shell will echo the command itself
+                            for (size_t i = 0; i < cmd_accumulator.size(); ++i) {
+                                std::cout << "\b \b";
+                            }
+                            std::cout << std::flush;
+                            
+                            // Now sync: clear shell's empty line and send command
                             const char kill_line = '\x15';  // Ctrl+U
                             write(pty_.get_master_fd(), &kill_line, 1);
                             write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
@@ -676,14 +684,18 @@ namespace dais::core {
                     }
                     // Handle Backspace
                     else if (c == 127 || c == '\b') {
-                        // LOCAL BACKSPACE ECHO for DAIS commands
-                        if (pty_.is_shell_idle() && cmd_accumulator.starts_with(":")) {
+                        // When editing a history entry or a DAIS command, handle visually
+                        // (shell doesn't know about our visual-only history navigation)
+                        bool visual_mode = (pty_.is_shell_idle() && history_navigated_) ||
+                                           (pty_.is_shell_idle() && cmd_accumulator.starts_with(":"));
+                        
+                        if (visual_mode) {
                             if (!cmd_accumulator.empty()) {
                                 cmd_accumulator.pop_back();
                                 // Erase character visually: backspace, space, backspace
                                 std::cout << "\b \b" << std::flush;
                             }
-                            // Don't send to shell
+                            // Don't send to shell - we're in visual-only mode
                         } else {
                             if (!cmd_accumulator.empty()) cmd_accumulator.pop_back();
                             data_to_write += c;
@@ -697,8 +709,12 @@ namespace dais::core {
                             cmd_accumulator += c;
                         }
                         
-                        // LOCAL ECHO for DAIS commands (starts with ':')
-                        if (pty_.is_shell_idle() && cmd_accumulator.starts_with(":")) {
+                        // Visual-only mode: DAIS commands (:) or editing history entries
+                        // Don't send to shell - we'll sync on Enter
+                        bool visual_mode = (pty_.is_shell_idle() && history_navigated_) ||
+                                           (pty_.is_shell_idle() && cmd_accumulator.starts_with(":"));
+                        
+                        if (visual_mode) {
                             std::cout << c << std::flush;
                         } else {
                             data_to_write += c;
