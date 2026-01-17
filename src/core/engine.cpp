@@ -453,9 +453,9 @@ namespace dais::core {
                     }
 
                     // --- ESCAPE SEQUENCE HANDLING ---
-                    // Arrow keys navigate DAIS history using DUAL-CHECK:
-                    // Both tcgetpgrp() AND prompt-state must agree for interception.
-                    // Falls through to shell if either check fails.
+                    // Arrow keys navigate DAIS history when shell is IDLE (at prompt).
+                    // Uses prompt detection state + debounce to ensure safety.
+                    // Falls through to shell if check fails.
                     if (c == '\x1b') {
                         // Check for arrow key interception with debounce
                         if (i + 2 < n && (buffer[i + 1] == '[' || buffer[i + 1] == 'O')) {
@@ -902,11 +902,9 @@ namespace dais::core {
     /**
      * @brief Navigates through DAIS command history via UP/DOWN arrows.
      * 
-     * Sends real keystrokes to the shell:
-     * 1. DEL characters to clear current line
-     * 2. History command characters
-     * 
-     * This ensures shell's readline and our accumulator stay in sync.
+     * Performs VISUAL-ONLY updates to the terminal using ANSI escape codes.
+     * Does NOT send characters to the shell immediately to avoid race conditions.
+     * Sets `history_navigated_ = true` so the Enter key handler can sync the shell later.
      * 
      * @param direction -1 for older (up), +1 for newer (down)
      * @param current_line Reference to cmd_accumulator

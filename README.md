@@ -25,7 +25,16 @@
 | `:ls` | Show current sort settings |
 | `:ls size desc false` | Sort by size, descending, dirs mixed with files |
 | `:ls d` | Reset sort to defaults |
+| `:history` | Show last 20 commands |
+| `:history n` | Show last n commands |
+| `:history clear` | Clear command history |
 | `:q` or `:exit` | Exit DAIS |
+
+### Command History
+DAIS maintains its own file-based history (~/.dais_history) separate from your shell's history.
+- **Smart Navigation**: Use UP/DOWN arrows at an empty prompt to navigate DAIS history.
+- **Original Commands**: Saves exactly what you typed (e.g., `ls`, including the projects own runtime : commands).
+- **Context Aware**: Arrow keys only navigate history when the shell is idle; they work normally inside apps like vim or nano.
 
 ### Visual Customization
 DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, icon-enhanced displays.
