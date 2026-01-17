@@ -82,7 +82,14 @@ namespace dais::core {
         std::filesystem::path shell_cwd_ = std::filesystem::current_path();
 
         // Track the active command string (e.g., "ls", "git status")
+        // Detect complex shells (Zsh, Fish) to handle prompt quirks (redraws using \r)
+        // - is_complex_shell_: Enables generic fixes for prompts that redraw/move cursor (Zsh/Fish)
+        // - is_fish_: Enables aggressive fixes for Fish-specific aliases and quirks
+        bool is_complex_shell_ = false;
+        bool is_fish_ = false;
         std::string current_command_;
+        
+        // --- THREAD SAFETY ---
         std::mutex state_mutex_;
 
         // modifying output

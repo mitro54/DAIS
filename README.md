@@ -18,7 +18,8 @@
     - **Configurable Sorting**: Sort output by name, size, type, or row count (`:ls size desc`)
     - **Fully Configurable**: Define your own output templates, icons, and colors
 - **Compatibility**:
-    - **Configurable Prompt Detection**: Supports standard prompts out-of-box, adjustable for anything else via config
+    - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
+    - **Shell Support**: Tested on **Bash**, **Zsh**, and **Fish**
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
 

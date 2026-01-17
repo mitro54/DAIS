@@ -59,6 +59,22 @@ namespace dais::core {
     constexpr size_t BUFFER_SIZE = 4096;
 
     Engine::Engine() {
+        // --- SHELL DETECTION ---
+        // We detect the shell type from the environment to handle specific quirks:
+        // - Zsha: Uses RPROMPT and complicated redraws involving carriage returns (\r).
+        // - Fish: Similar to Zsh, plus autosuggestions and often aliased 'ls' commands that break parsing.
+        // We group these as "complex shells" for shared logic, while tracking Fish specifically for unique overrides.
+        const char* shell_env = std::getenv("SHELL");
+        if (shell_env) {
+            std::string shell_path(shell_env);
+            if (shell_path.find("zsh") != std::string::npos) {
+                is_complex_shell_ = true;
+            } else if (shell_path.find("fish") != std::string::npos) {
+                is_complex_shell_ = true;
+                is_fish_ = true;
+            }
+        }
+        
         load_history();  // Load ~/.dais_history on startup
     }
     
@@ -343,16 +359,29 @@ namespace dais::core {
                     pending_output_buffer_ += chunk;
                     
                     // PROMPT DETECTION
-                    // we check if the buffer ENDS with one of the known prompts.
+                    // Check if the buffer ENDS with one of the known prompts.
+                    // Use the tail of the buffer (last 200 chars) and strip ANSI codes
+                    // because Zsh and other shells embed escape sequences in prompts.
                     bool prompt_detected = false;
                     
+                    // Extract tail and strip ANSI codes for clean comparison
+                    size_t tail_start = pending_output_buffer_.size() > 200 ? 
+                                        pending_output_buffer_.size() - 200 : 0;
+                    std::string tail = pending_output_buffer_.substr(tail_start);
+                    std::string clean_tail = handlers::strip_ansi(tail);
+                    
                     for (const auto& prompt : config_.shell_prompts) {
-                        if (pending_output_buffer_.size() >= prompt.size()) {
-                            // Check tail of buffer
-                            if (pending_output_buffer_.compare(
-                                    pending_output_buffer_.size() - prompt.size(), 
-                                    prompt.size(), 
-                                    prompt) == 0) {
+                        if (clean_tail.size() >= prompt.size()) {
+                            // --- RELAXED PROMPT MATCHING ---
+                            // We don't require the buffer to end EXACTLY with the prompt string.
+                            // Shells (especially Zsh/Fish) often append invisible characters *after* the prompt text:
+                            // - Whitespace for margin
+                            // - "Clear Line" (ANSI [K) codes
+                            // - Hidden cursor state updates
+                            // scanning the last 10 characters makes detection robust against these invisible suffixes.
+                            size_t found_pos = clean_tail.rfind(prompt);
+                            if (found_pos != std::string::npos && 
+                                found_pos >= clean_tail.size() - prompt.size() - 10) {
                                 prompt_detected = true;
                                 break;
                             }
@@ -377,15 +406,21 @@ namespace dais::core {
                         if (at_line_start_) {
                             // Only show logo when shell is idle (no apps like nano/vim running)
                             if (c != '\n' && c != '\r' && config_.show_logo && pty_.is_shell_idle()) {
-                                std::string logo_str = "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
                                 write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
                                 at_line_start_ = false;
                             }
                         }
                         write(STDOUT_FILENO, &c, 1);
-                        if (c == '\n' || c == '\r') {
+                        if (c == '\n') {
                             at_line_start_ = true;
                             prompt_buffer.clear();  // Reset on newline
+                        } else if (c == '\r') {
+                            // Complex shells (Zsh, Fish) use \r for redraws/autosuggestions, so we ignore it.
+                            // Simple shells (Bash, Sh) use \r\n or \r for prompts, so we MUST handle it.
+                            if (!is_complex_shell_) {
+                                at_line_start_ = true;
+                            }
                         } else {
                             prompt_buffer += c;
                             if (prompt_buffer.size() > 100) {
@@ -581,8 +616,22 @@ namespace dais::core {
                                 sync_child_cwd(); 
 
                                 intercepting = true;
-                                // INJECTION: Append ' -1' to force single-column output.
-                                data_to_write += " -1";
+                                
+                                // --- FISH SHELL COMPATIBILITY ---
+                                // Fish often treats 'ls' as a function/alias with default flags (colors, -F) that
+                                // produce output formats DAIS cannot reliably parse (e.g. trailing characters).
+                                // To fix this, we:
+                                // 1. Backspace over the user's "ls" to visually erase it.
+                                // 2. Inject 'command ls -1', which bypasses aliases and functions, ensuring clean output.
+                                if (is_fish_) {
+                                    // Erase "ls" (2 chars) from the shell line
+                                    data_to_write += "\b\b"; 
+                                    data_to_write += "command ls -1";
+                                } else {
+                                    // Standard Shells: Just append the flag.
+                                    // "ls" -> "ls -1"
+                                    data_to_write += " -1";
+                                }
                             }
 
                             // 2. Internal Exit Commands
@@ -748,14 +797,73 @@ namespace dais::core {
         final_output.reserve(raw_output.size() * 3);
 
         // Separate content from the prompt
-        size_t last_newline = raw_output.find_last_of("\n");
-        if (last_newline == std::string_view::npos) last_newline = raw_output.length(); 
+        // Strategy: Find prompt pattern in raw output, then find the newline before it.
+        // For multi-line prompts, check if the previous line contains CWD.
+        
+        // First try to find prompt in raw output directly
+        size_t prompt_pos = std::string::npos;
+        for (const auto& prompt : config_.shell_prompts) {
+            size_t pos = raw_output.rfind(prompt);
+            if (pos != std::string::npos) {
+                prompt_pos = pos;
+                break;
+            }
+        }
+        
+        // If not found in raw, try stripping ANSI from tail and checking
+        if (prompt_pos == std::string::npos) {
+            // Check the last 300 chars (enough for most prompts)
+            size_t tail_start = raw_output.size() > 300 ? raw_output.size() - 300 : 0;
+            std::string tail_raw(raw_output.substr(tail_start));
+            std::string tail_clean = handlers::strip_ansi(tail_raw);
+            
+            for (const auto& prompt : config_.shell_prompts) {
+                if (tail_clean.size() >= prompt.size()) {
+                    size_t clean_pos = tail_clean.rfind(prompt);
+                    if (clean_pos != std::string::npos && 
+                        clean_pos >= tail_clean.size() - prompt.size() - 5) {
+                        // Prompt is at the very end - use last newline
+                        prompt_pos = raw_output.rfind('\n');
+                        if (prompt_pos != std::string::npos) prompt_pos++; // After the newline
+                        break;
+                    }
+                }
+            }
+        }
+        
+        // Find the newline before the prompt
+        size_t split_pos = std::string::npos;
+        if (prompt_pos != std::string::npos && prompt_pos > 0) {
+            split_pos = raw_output.rfind('\n', prompt_pos - 1);
+            
+            if (split_pos != std::string::npos) {
+                // For multi-line prompts, check if previous line contains CWD
+                size_t prev_line_start = (split_pos > 0) ? 
+                    raw_output.rfind('\n', split_pos - 1) : std::string::npos;
+                if (prev_line_start != std::string::npos) {
+                    std::string prev_line = handlers::strip_ansi(
+                        std::string(raw_output.substr(prev_line_start + 1, split_pos - prev_line_start - 1)));
+                    
+                    std::string cwd_str = shell_cwd_.string();
+                    if (prev_line.find(cwd_str) != std::string::npos || 
+                        prev_line.find(shell_cwd_.filename().string()) != std::string::npos) {
+                        split_pos = prev_line_start;
+                    }
+                }
+            }
+        }
+        
+        // Fallback to last newline
+        if (split_pos == std::string::npos) {
+            split_pos = raw_output.rfind('\n');
+        }
+        if (split_pos == std::string::npos) split_pos = raw_output.length();
 
-        std::string_view content_payload = raw_output.substr(0, last_newline);
+        std::string_view content_payload = raw_output.substr(0, split_pos);
         
         std::string_view prompt_payload = "";
-        if (last_newline < raw_output.length()) {
-            prompt_payload = raw_output.substr(last_newline);
+        if (split_pos < raw_output.length()) {
+            prompt_payload = raw_output.substr(split_pos);
         }
 
         // --- THREAD SAFETY: COPY ---
@@ -795,19 +903,93 @@ namespace dais::core {
             final_output += processed_content;
         }
 
-        // Re-attach Prompt with Logo
+        // Re-attach Prompt with Logo on EACH line (for multi-line prompts)
         if (!prompt_payload.empty()) {
-            final_output += "\r"; 
-            size_t text_start = prompt_payload.find_first_not_of("\r\n");
+            std::string prompt_str(prompt_payload);
+            std::string logo_str = config_.show_logo ? 
+                (handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ") : "";
             
-            if (text_start != std::string_view::npos) {
-                final_output.append(prompt_payload.substr(0, text_start));
-                if (config_.show_logo) {
-                    final_output += "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+            // Trim leading newlines/CRs to prevent extra blank lines
+            size_t first_char = prompt_str.find_first_not_of("\r\n");
+            if (first_char != std::string::npos && first_char > 0) {
+                prompt_str = prompt_str.substr(first_char);
+            } else if (first_char == std::string::npos) {
+                // String is all whitespace
+                prompt_str.clear();
+            }
+            
+            if (prompt_str.empty()) return final_output;
+
+            // Strategy: Split strictly by \n, preserving \r within the lines.
+            // Zsh prompts often have \r to handle right-side prompts.
+            // We inject the logo at the start of the line, or after the leading \r if present.
+            
+            size_t start = 0;
+            size_t end = prompt_str.find('\n');
+            
+            while (start < prompt_str.size()) {
+                // Extract current line (including \r if present, but excluding \n)
+                std::string line = (end == std::string::npos) ? 
+                    prompt_str.substr(start) : prompt_str.substr(start, end - start);
+                
+                final_output += "\r\n"; // Start a new visual line
+                
+                // For Zsh, if line starts with \r, unexpected things happen if we prepend logo.
+                // E.g. "[-] \rPROMPT" -> " PROMPT" (logo overwritten)
+                // "[-] PROMPT" -> works if PROMPT doesn't start with \r
+                
+                // If line isn't empty, inject logo
+                if (!line.empty()) {
+                    // Smart Logo Injection
+                    // Complex shells (Fish, Zsh) often redraw the prompt by:
+                    // 1. Moving cursor to start (\r)
+                    // 2. Clearing the line (\x1b[2K)
+                    // We must inject the logo AFTER these resets, otherwise it gets wiped.
+                    
+                    size_t inject_pos = 0;
+                    
+                    if (is_complex_shell_) {
+                        // Find the last carriage return
+                        size_t last_cr = line.rfind('\r');
+                        if (last_cr != std::string::npos) {
+                            inject_pos = last_cr + 1; // After \r
+                        }
+                        
+                        // Find the last "Clear Entire Line" sequence (\x1b[2K)
+                        // It overrides \r because it clears everything.
+                        size_t last_2k = line.rfind("\x1b[2K");
+                        if (last_2k != std::string::npos) {
+                             if (last_2k + 4 > inject_pos) {
+                                 inject_pos = last_2k + 4;
+                             }
+                        }
+                    } else {
+                         // Simple shells: Inject at start (ignore \r to prevent partial overwrites)
+                         // But we still want to respect if the prompt explicitly starts with \r
+                         if (line.starts_with('\r')) {
+                             inject_pos = line.find_first_not_of('\r');
+                             if (inject_pos == std::string::npos) inject_pos = 0;
+                         }
+                    }
+
+                    if (inject_pos > 0 && inject_pos < line.size()) {
+                        final_output += line.substr(0, inject_pos);
+                        final_output += logo_str;
+                        final_output += line.substr(inject_pos);
+                    } else if (inject_pos == line.size()) {
+                        // Reset is at end of line (weird but possible) - append logo
+                        final_output += line;
+                        final_output += logo_str;
+                    } else {
+                        // Start of line
+                        final_output += logo_str;
+                        final_output += line;
+                    }
                 }
-                final_output.append(prompt_payload.substr(text_start));
-            } else {
-                final_output.append(prompt_payload);
+                
+                if (end == std::string::npos) break;
+                start = end + 1;
+                end = prompt_str.find('\n', start);
             }
         }
 

@@ -99,10 +99,11 @@ namespace dais::core::handlers {
         std::string result;
         result.reserve(s.size());
         
-        enum State { TEXT, ESCAPE, CSI, OSC }; // CSI: [...], OSC: ]...
+        enum State { TEXT, ESCAPE, CSI, OSC, CHARSET }; 
         State state = TEXT;
 
-        for (char c : s) {
+        for (size_t i = 0; i < s.size(); ++i) {
+            char c = s[i];
             switch (state) {
                 case TEXT:
                     if (c == '\x1b') state = ESCAPE;
@@ -112,18 +113,31 @@ namespace dais::core::handlers {
                 case ESCAPE:
                     if (c == '[') state = CSI;
                     else if (c == ']') state = OSC;
-                    else state = TEXT; // Unknown escape, abort
+                    else if (c == '(' || c == ')') state = CHARSET; // G0/G1 Charset Selection
+                    else state = TEXT; 
+                    break;
+
+                case CHARSET:
+                    // Charset selection is ESC ( X. Just consume X.
+                    // Fish/CMake often use this (e.g., \x1b(B to reset to US ASCII).
+                    // If not stripped, it corrupts filenames (e.g., "BCMakeCache.txt").
+                    state = TEXT;
                     break;
 
                 case CSI:
-                    // Standard ANSI codes end with a letter (usually 'm' for color)
                     if (std::isalpha(c)) state = TEXT;
                     break;
 
                 case OSC:
-                    // OSC codes usually end with BEL (\x07) or ST (\x1b\)
-                    // We treat BEL as the terminator for simplicity here.
-                    if (c == '\x07') state = TEXT; 
+                    // OSC codes end with BEL (\x07) or ST (\x1b\)
+                    // ST termination is critical for modern shells like Fish setting window titles.
+                    // Without this check, the parser eats the rest of the file content.
+                    if (c == '\x07') {
+                        state = TEXT; 
+                    } else if (c == '\x1b' && i + 1 < s.size() && s[i+1] == '\\') {
+                        state = TEXT;
+                        i++; // Skip the backslash
+                    }
                     break;
             }
         }
@@ -390,7 +404,22 @@ namespace dais::core::handlers {
             
             // 2. Filter out artifacts and special entries
             // NOTE: Filtering must happen synchronously to avoid spawning unnecessary threads
-            if (first_token && (clean_name == "ls" || clean_name == "ls -1")) { 
+            
+            // --- COMMAND ECHO FILTERING ---
+            // Heuristic to detect and ignore the shell's echo of our injected command.
+            // This is critical for Fish support where we inject backspaces ("\b\bcommand ls -1").
+            // If not filtered, the raw echo (including backspaces/control chars) usually appears
+            // as the first line and would be interpreted as a garbage file entry (e.g. "BB").
+            bool is_command_echo = false;
+            if (first_token) {
+                if (clean_name == "ls" || clean_name == "ls -1" || 
+                    clean_name.find("command ls") != std::string::npos ||
+                    item_raw.find('\b') != std::string::npos) {
+                    is_command_echo = true;
+                }
+            }
+            
+            if (is_command_echo) { 
                 first_token = false; 
                 continue; 
             }

@@ -15,7 +15,11 @@ SHELL_PROMPTS = [
     "> ",  # Python / Windows default
     "# ",  # Root default
     "➜ ",  # Starship / Oh-My-Zsh common arrow
-    "❯ "   # Starship / Oh-My-Zsh common arrow
+    "❯ ",  # Starship / Oh-My-Zsh common arrow
+    ")> ", # Fish common (e.g. git branch)
+    ")>",  # Fish common no-space
+    "~> ", # Fish default
+    "~>"   # Fish default no-space
 ]
 
 # Centralized Color Palette (ANSI Escape Codes)
