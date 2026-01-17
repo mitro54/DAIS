@@ -14,8 +14,8 @@
 #include <thread>
 #include <array>
 #include <string>
-#include <string_view>
 #include <iostream> // Needed for std::cout, std::cerr
+#include <fstream>  // Needed for std::ofstream, std::ifstream
 #include <poll.h>
 #include <csignal>
 #include <sys/wait.h>
@@ -57,7 +57,9 @@ namespace dais::core {
 
     constexpr size_t BUFFER_SIZE = 4096;
 
-    Engine::Engine() {}
+    Engine::Engine() {
+        load_history();  // Load ~/.dais_history on startup
+    }
     
     // Ensure we kill the child shell if the engine is destroyed while running
     Engine::~Engine() { if (running_) kill(pty_.get_child_pid(), SIGTERM); }
@@ -366,6 +368,9 @@ namespace dais::core {
                 } 
                 // --- PASS-THROUGH MODE ---
                 else {
+                    // Track last few chars for prompt detection
+                    static std::string prompt_buffer;
+                    
                     for (ssize_t i = 0; i < bytes_read; ++i) {
                         char c = buffer[i];
                         if (at_line_start_) {
@@ -377,7 +382,25 @@ namespace dais::core {
                             }
                         }
                         write(STDOUT_FILENO, &c, 1);
-                        if (c == '\n' || c == '\r') at_line_start_ = true;
+                        if (c == '\n' || c == '\r') {
+                            at_line_start_ = true;
+                            prompt_buffer.clear();  // Reset on newline
+                        } else {
+                            prompt_buffer += c;
+                            if (prompt_buffer.size() > 20) {
+                                prompt_buffer = prompt_buffer.substr(prompt_buffer.size() - 20);
+                            }
+                        }
+                    }
+                    
+                    // --- PROMPT DETECTION: Set state to IDLE ---
+                    // Check if output ends with a known shell prompt
+                    for (const auto& prompt : config_.shell_prompts) {
+                        if (prompt_buffer.size() >= prompt.size() &&
+                            prompt_buffer.substr(prompt_buffer.size() - prompt.size()) == prompt) {
+                            shell_state_ = ShellState::IDLE;
+                            break;
+                        }
                     }
                 }
             }
@@ -410,20 +433,54 @@ namespace dais::core {
                 if (n <= 0) break;
 
                 std::string data_to_write;
-                data_to_write.reserve(n + 8); 
+                data_to_write.reserve(n + 8);
 
                 // Process char-by-char to build command string
                 for (ssize_t i = 0; i < n; ++i) {
                     char c = buffer[i];
 
+                    // --- STATEFUL OSC SKIPPING ---
+                    // If we are in the middle of skipping an OSC sequence (split across reads),
+                    // swallow characters until we find the terminator.
+                    if (skipping_osc_) {
+                        if (c == '\x07') {
+                            skipping_osc_ = false;
+                        } else if (c == '\x1b' && i + 1 < n && buffer[i + 1] == '\\') {
+                             skipping_osc_ = false;
+                             i++; // Skip backslash
+                        }
+                        continue; // Swallow this character
+                    }
+
                     // --- ESCAPE SEQUENCE HANDLING ---
-                    // Arrow keys, function keys, etc. send multi-byte sequences starting with ESC (\x1b).
-                    // We must skip these from the accumulator but still forward them to the shell.
+                    // Arrow keys navigate DAIS history using DUAL-CHECK:
+                    // Both tcgetpgrp() AND prompt-state must agree for interception.
+                    // Falls through to shell if either check fails.
                     if (c == '\x1b') {
-                        // Forward the entire escape sequence to the shell
+                        // Check for arrow key interception with debounce
+                        if (i + 2 < n && (buffer[i + 1] == '[' || buffer[i + 1] == 'O')) {
+                            char arrow = buffer[i + 2];
+                            
+                            // DEBOUNCE: Wait 200ms after last command to avoid race with app startup
+                            auto now = std::chrono::steady_clock::now();
+                            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                now - last_command_time_).count();
+                            
+                            if ((arrow == 'A' || arrow == 'B') && 
+                                pty_.is_shell_idle() && 
+                                elapsed > 200) {
+                                // Safe to intercept for DAIS history
+                                int direction = (arrow == 'A') ? -1 : 1;
+                                navigate_history(direction, cmd_accumulator);
+                                i += 2;  // Skip '['/O' and arrow letter
+                                continue;  // Don't forward to shell
+                            }
+                        }
+                        
+                        // Not intercepted - forward escape sequence to shell
                         data_to_write += c;
-                        // Skip remaining bytes of the escape sequence
-                        // CSI sequences: ESC [ ... (terminated by a letter)
+                        
+                        // Handle CSI sequences (ESC [ ...)
                         if (i + 1 < n && buffer[i + 1] == '[') {
                             data_to_write += buffer[++i]; // '['
                             while (i + 1 < n && !std::isalpha(static_cast<unsigned char>(buffer[i + 1]))) {
@@ -432,6 +489,36 @@ namespace dais::core {
                             if (i + 1 < n) {
                                 data_to_write += buffer[++i]; // terminating letter
                             }
+                        }
+                        // Handle SS3 sequences (ESC O ...)
+                        else if (i + 1 < n && buffer[i + 1] == 'O') {
+                            data_to_write += buffer[++i]; // 'O'
+                            if (i + 1 < n) {
+                                data_to_write += buffer[++i]; // terminating letter
+                            }
+                        }
+                        // Handle OSC sequences (ESC ] ...) - skip entirely
+                        else if (i + 1 < n && buffer[i + 1] == ']') {
+                            data_to_write.pop_back();  // Remove the ESC we added
+                            i++;  // Skip ']'
+                            skipping_osc_ = true; // Assume skipping until we find terminator
+                            
+                            while (i + 1 < n) {
+                                if (buffer[i + 1] == '\x07') { 
+                                    skipping_osc_ = false; 
+                                    i++; 
+                                    break; 
+                                }
+                                if (buffer[i + 1] == '\x1b' && i + 2 < n && buffer[i + 2] == '\\') {
+                                    skipping_osc_ = false;
+                                    i += 2; 
+                                    break;
+                                }
+                                i++;
+                            }
+                            // If loop finishes and skipping_osc_ is still true, 
+                            // it means we ran out of buffer before finding terminator.
+                            // We will continue skipping in the next read() cycle.
                         }
                         continue; // Don't add to accumulator
                     }
@@ -444,20 +531,41 @@ namespace dais::core {
                         continue;
                     }
                     // --- SMART INTERCEPTION ---
-                    // Only intercept DAIS commands when shell is IDLE (no foreground child like vim)
-                    bool shell_idle = pty_.is_shell_idle();
+                    // Only process DAIS commands when at shell prompt (IDLE state)
                     
                     // Check for Enter key (\r or \n) indicating command submission
                     if (c == '\r' || c == '\n') {
+                        // --- SYNC SHELL WITH VISUAL STATE ---
+                        // Only sync when user actually navigated history (changes were visual-only).
+                        // Skip for internal commands (:) which are handled separately.
+                        if (history_navigated_ && pty_.is_shell_idle() && !cmd_accumulator.empty() && 
+                            !cmd_accumulator.starts_with(":")) {
+                            const char kill_line = '\x15';  // Ctrl+U
+                            write(pty_.get_master_fd(), &kill_line, 1);
+                            write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
+                        }
+                        history_navigated_ = false;  // Reset flag
+                        
+                        // --- STATE TRANSITION: IDLE -> RUNNING ---
+                        shell_state_ = ShellState::RUNNING;
+                        last_command_time_ = std::chrono::steady_clock::now();  // For debounce
+                        
                         // --- THREAD SAFETY: LOCK ---
                         {
                             std::lock_guard<std::mutex> lock(state_mutex_);
                             current_command_ = cmd_accumulator; 
                         }
                         // ---------------------------
-
-                        // Only process DAIS commands if shell is idle
-                        if (shell_idle) {
+                        
+                        // Only save to history and process DAIS commands when shell is idle
+                        // This prevents vim/nano keystrokes from polluting history
+                        if (pty_.is_shell_idle()) {
+                            // Save to DAIS history file (~/.dais_history)
+                            if (!cmd_accumulator.empty()) {
+                                save_history_entry(cmd_accumulator);
+                                history_index_ = command_history_.size();
+                                history_stash_.clear();
+                            }
                             // 1. Detect 'ls'
                             if (cmd_accumulator == "ls") {
                                 // CWD FIX: Sync OS state before running ls logic
@@ -543,6 +651,23 @@ namespace dais::core {
                                 write(pty_.get_master_fd(), "\n", 1);
                                 continue;
                             }
+                            
+                            // 4. History Command
+                            // :history       - Show last 20 commands
+                            // :history N     - Show last N commands
+                            // :history clear - Clear all history
+                            if (cmd_accumulator.starts_with(":history")) {
+                                std::string args = cmd_accumulator.length() > 8 
+                                    ? cmd_accumulator.substr(9) : "";
+                                // Trim leading space
+                                if (!args.empty() && args[0] == ' ') args = args.substr(1);
+                                
+                                show_history(args);
+                                
+                                cmd_accumulator.clear();
+                                write(pty_.get_master_fd(), "\n", 1);
+                                continue;
+                            }
                         }
 
                         trigger_python_hook("on_command", cmd_accumulator);
@@ -552,7 +677,7 @@ namespace dais::core {
                     // Handle Backspace
                     else if (c == 127 || c == '\b') {
                         // LOCAL BACKSPACE ECHO for DAIS commands
-                        if (shell_idle && cmd_accumulator.starts_with(":")) {
+                        if (pty_.is_shell_idle() && cmd_accumulator.starts_with(":")) {
                             if (!cmd_accumulator.empty()) {
                                 cmd_accumulator.pop_back();
                                 // Erase character visually: backspace, space, backspace
@@ -566,11 +691,14 @@ namespace dais::core {
                     }
                     // Regular character
                     else if (std::isprint(static_cast<unsigned char>(c))) {
-                        cmd_accumulator += c;
+                        // Only accumulate for DAIS history if shell is IDLE (at prompt)
+                        // This prevents app input (e.g. 'n' in nano) from polluting history
+                        if (pty_.is_shell_idle()) {
+                            cmd_accumulator += c;
+                        }
                         
-                        // LOCAL ECHO for DAIS commands (starts with ':' when shell idle)
-                        // We echo locally so user sees what they type, but don't send to shell
-                        if (shell_idle && cmd_accumulator.starts_with(":")) {
+                        // LOCAL ECHO for DAIS commands (starts with ':')
+                        if (pty_.is_shell_idle() && cmd_accumulator.starts_with(":")) {
                             std::cout << c << std::flush;
                         } else {
                             data_to_write += c;
@@ -667,5 +795,175 @@ namespace dais::core {
         }
 
         return final_output;
+    }
+
+    // =========================================================================
+    // COMMAND HISTORY (File-Based)
+    // =========================================================================
+    
+    /**
+     * @brief Loads command history from ~/.dais_history on startup.
+     */
+    void Engine::load_history() {
+        const char* home = getenv("HOME");
+        if (!home) return;
+        
+        history_file_ = std::filesystem::path(home) / ".dais_history";
+        
+        std::ifstream file(history_file_);
+        if (!file.is_open()) return;
+        
+        std::string line;
+        while (std::getline(file, line)) {
+            if (!line.empty()) {
+                command_history_.push_back(line);
+            }
+        }
+        
+        // Trim to MAX_HISTORY if file was larger
+        while (command_history_.size() > MAX_HISTORY) {
+            command_history_.pop_front();
+        }
+        
+        // Initialize index to end so UP goes to newest first
+        history_index_ = command_history_.size();
+    }
+    
+    /**
+     * @brief Appends a command to history (in-memory and file).
+     * Skips empty commands and duplicates of the last command.
+     */
+    void Engine::save_history_entry(const std::string& cmd) {
+        if (cmd.empty()) return;
+        
+        // Skip duplicates
+        if (!command_history_.empty() && command_history_.back() == cmd) {
+            return;
+        }
+        
+        // Add to in-memory buffer
+        command_history_.push_back(cmd);
+        if (command_history_.size() > MAX_HISTORY) {
+            command_history_.pop_front();
+        }
+        
+        // Append to file
+        if (!history_file_.empty()) {
+            std::ofstream file(history_file_, std::ios::app);
+            if (file.is_open()) {
+                file << cmd << "\n";
+            }
+        }
+    }
+    
+    /**
+     * @brief Handles :history command.
+     * :history       - Show last 20 commands
+     * :history N     - Show last N commands
+     * :history clear - Clear all history
+     */
+    void Engine::show_history(const std::string& args) {
+        if (args == "clear") {
+            command_history_.clear();
+            if (!history_file_.empty()) {
+                std::ofstream file(history_file_, std::ios::trunc);
+            }
+            std::cout << "\r\n[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET
+                      << "] History cleared.\r\n" << std::flush;
+            return;
+        }
+        
+        // Parse count (default 20)
+        size_t count = 20;
+        if (!args.empty()) {
+            try {
+                count = std::stoul(args);
+            } catch (...) {
+                count = 20;
+            }
+        }
+        
+        if (command_history_.empty()) {
+            std::cout << "\r\n[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET
+                      << "] History is empty.\r\n" << std::flush;
+            return;
+        }
+        
+        // Show last N commands
+        std::cout << "\r\n";
+        size_t start = command_history_.size() > count ? command_history_.size() - count : 0;
+        for (size_t i = start; i < command_history_.size(); i++) {
+            std::cout << "[" << handlers::Theme::VALUE << (i + 1) << handlers::Theme::RESET
+                      << "] " << command_history_[i] << "\r\n";
+        }
+        std::cout << std::flush;
+    }
+    
+    /**
+     * @brief Navigates through DAIS command history via UP/DOWN arrows.
+     * 
+     * Sends real keystrokes to the shell:
+     * 1. DEL characters to clear current line
+     * 2. History command characters
+     * 
+     * This ensures shell's readline and our accumulator stay in sync.
+     * 
+     * @param direction -1 for older (up), +1 for newer (down)
+     * @param current_line Reference to cmd_accumulator
+     */
+    void Engine::navigate_history(int direction, std::string& current_line) {
+        // SAFETY: Don't write anything if an app is running (vim/nano)
+        // This check is belt-and-suspenders with the caller's check
+        if (!pty_.is_shell_idle()) return;
+        
+        if (command_history_.empty()) return;
+        
+        // Stash current line when first navigating up from the end
+        if (history_index_ == command_history_.size() && direction < 0) {
+            history_stash_ = current_line;
+        }
+        
+        // Calculate new index with boundary checks
+        size_t new_index = history_index_;
+        if (direction < 0 && history_index_ > 0) {
+            new_index = history_index_ - 1;
+        } else if (direction > 0 && history_index_ < command_history_.size()) {
+            new_index = history_index_ + 1;
+        } else {
+            return;  // Already at boundary
+        }
+        history_index_ = new_index;
+        history_navigated_ = true;  // Mark that we've used history navigation
+        
+        // Determine new content
+        std::string new_content;
+        if (history_index_ == command_history_.size()) {
+            new_content = history_stash_;  // Restore stashed line
+        } else {
+            new_content = command_history_[history_index_];
+        }
+        
+        // --- VISUAL UPDATE ONLY ---
+        // DON'T send to shell - just update the display locally.
+        // We'll sync with shell when user actually presses Enter.
+        // This avoids race conditions with apps like vim.
+        
+        // Move cursor to start of current input and clear
+        // First, move back by current_line length
+        if (!current_line.empty()) {
+            // Move cursor left by current_line.size()
+            std::string move_back = "\x1b[" + std::to_string(current_line.size()) + "D";
+            write(STDOUT_FILENO, move_back.c_str(), move_back.size());
+            // Clear from cursor to end of line
+            write(STDOUT_FILENO, "\x1b[K", 3);
+        }
+        
+        // Write new content
+        if (!new_content.empty()) {
+            write(STDOUT_FILENO, new_content.c_str(), new_content.size());
+        }
+        
+        // Update internal state - shell will see this when Enter is pressed
+        current_line = new_content;
     }
 }

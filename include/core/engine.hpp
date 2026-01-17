@@ -6,8 +6,10 @@
 #include <string_view>
 #include <string>
 #include <vector>
+#include <deque>
 #include <filesystem>
 #include <mutex>
+#include <chrono>
 
 namespace py = pybind11;
 
@@ -103,5 +105,35 @@ namespace dais::core {
          * Essential for handling TAB completion where input buffer doesn't match path.
          */
         void sync_child_cwd();
+        
+        // =====================================================================
+        // SHELL STATE (Prompt-Based Detection)
+        // =====================================================================
+        // Track shell state based on events, not syscalls.
+        // IDLE = at prompt, RUNNING = command executing or app running.
+        
+        enum class ShellState { IDLE, RUNNING };
+        std::atomic<ShellState> shell_state_{ShellState::IDLE};
+        std::chrono::steady_clock::time_point last_command_time_;  ///< Debounce timer
+        
+        // =====================================================================
+        // COMMAND HISTORY (File-Based + Arrow Navigation)
+        // =====================================================================
+        // DAIS-managed history persisted to ~/.dais_history.
+        // Arrow keys navigate DAIS history when shell is IDLE.
+        // Shows original commands (e.g., 'ls' not 'ls -1').
+        
+        std::deque<std::string> command_history_;   ///< In-memory buffer
+        std::filesystem::path history_file_;        ///< ~/.dais_history
+        size_t history_index_ = 0;                  ///< Current position in history
+        std::string history_stash_;                 ///< Stashes current line when navigating
+        bool history_navigated_ = false;            ///< True if arrow navigation was used
+        bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
+        static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
+        
+        void load_history();                        ///< Load from file on startup
+        void save_history_entry(const std::string& cmd);  ///< Append to file
+        void show_history(const std::string& args); ///< Handle :history command
+        void navigate_history(int direction, std::string& current_line); ///< Arrow key nav
     };
 }
