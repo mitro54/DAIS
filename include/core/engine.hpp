@@ -98,11 +98,6 @@ namespace dais::core {
         std::string prompt_buffer_;            ///< Last ~100 chars for prompt detection
         int pass_through_esc_state_ = 0;       ///< ANSI escape sequence state machine (0=normal)
         
-        // --- INTERCEPTION STATE ---
-        std::string pending_output_buffer_;
-        std::atomic<bool> intercepting{false};
-        std::string process_output(std::string_view raw_output);
-        
         // Singleton thread pool for parallel file analysis (used by ls handler)
         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)
         // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs
