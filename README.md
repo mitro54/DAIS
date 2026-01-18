@@ -41,13 +41,22 @@ DAIS maintains its own file-based history (~/.dais_history) separate from your s
 - **Context Aware**: Arrow keys only navigate history when the shell is idle; they work normally inside apps like vim or nano.
 
 ### Visual Customization
-DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, icon-enhanced displays.
+DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
 
-**Default look:**
-![Default Style](docs/assets/ls_default.png)
+**Neon Style** (High Contrast & Vibrant)
+![Neon Style](docs/assets/DAIS_neon.jpg)
 
-**One possible custom look:**
-![Icon Style](docs/assets/ls_custom.png)
+**Amber Retro** (Classic Terminal Feel)
+![Amber Retro](docs/assets/DAIS_amber_retro.jpg)
+
+**Deep Sea** (Professional Dark Theme)
+![Deep Sea](docs/assets/DAIS_deepsea.jpg)
+
+**Icon Enhanced** (Informative / Visual)
+![Icon Enhanced](docs/assets/DAIS_icon_enhanced.jpg)
+
+**Basic / Minimalist** (Clean & Simple)
+![Basic Style](docs/assets/DAIS_basic.jpg)
 
 ## Scope
 - Projects scope is to create a helpful open-source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
