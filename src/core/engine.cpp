@@ -352,138 +352,93 @@ namespace dais::core {
                 ssize_t bytes_read = read(pty_.get_master_fd(), buffer.data(), buffer.size());
                 if (bytes_read <= 0) break;
 
-                // --- INTERCEPTION MODE ---
-                if (intercepting) {
-                    std::string_view chunk(buffer.data(), bytes_read);
-                    pending_output_buffer_ += chunk;
-                    
-                    // PROMPT DETECTION
-                    // Check if the buffer ENDS with one of the known prompts.
-                    // Use the tail of the buffer (last 200 chars) and strip ANSI codes
-                    // because Zsh and other shells embed escape sequences in prompts.
-                    bool prompt_detected = false;
-                    
-                    // Extract tail and strip ANSI codes for clean comparison
-                    size_t tail_start = pending_output_buffer_.size() > 200 ? 
-                                        pending_output_buffer_.size() - 200 : 0;
-                    std::string tail = pending_output_buffer_.substr(tail_start);
-                    std::string clean_tail = handlers::strip_ansi(tail);
-                    
-                    for (const auto& prompt : config_.shell_prompts) {
-                        if (clean_tail.size() >= prompt.size()) {
-                            // --- RELAXED PROMPT MATCHING ---
-                            // We don't require the buffer to end EXACTLY with the prompt string.
-                            // Shells (especially Zsh/Fish) often append invisible characters *after* the prompt text:
-                            // - Whitespace for margin
-                            // - "Clear Line" (ANSI [K) codes
-                            // - Hidden cursor state updates
-                            // scanning the last 10 characters makes detection robust against these invisible suffixes.
-                            size_t found_pos = clean_tail.rfind(prompt);
-                            if (found_pos != std::string::npos && 
-                                found_pos >= clean_tail.size() - prompt.size() - 10) {
-                                prompt_detected = true;
-                                break;
-                            }
-                        }
-                    }
-
-                    if (prompt_detected) {
-                        std::string modified = process_output(pending_output_buffer_);
-                        write(STDOUT_FILENO, modified.c_str(), modified.size());
-                        
-                        // The prompt we wrote already has a logo - don't let pass-through inject another
-                        at_line_start_ = false;
-                        
-                        intercepting = false;
-                        pending_output_buffer_.clear();
-                    }
-                } 
                 // --- PASS-THROUGH MODE ---
-                else {
-                    // Forward shell output to terminal with optional logo injection.
-                    // Uses class members prompt_buffer_ and pass_through_esc_state_ for state.
+                // Forward shell output to terminal with optional logo injection.
+                // Uses class members prompt_buffer_ and pass_through_esc_state_ for state.
+                
+                for (ssize_t i = 0; i < bytes_read; ++i) {
+                    char c = buffer[i];
                     
-                    for (ssize_t i = 0; i < bytes_read; ++i) {
-                        char c = buffer[i];
+                    // Shell-Specific Logo Injection Strategy:
+                    //
+                    // Fish: Prompt rendering is too complex (RPROMPT, dynamic redraws).
+                    //       Skip pass-through logo injection entirely.
+                    //
+                    // Zsh: Uses ANSI escape sequences heavily. Use state machine to track
+                    //      sequences and only inject when fully outside a sequence.
+                    //
+                    // Bash/Sh: Simpler prompts. Inject immediately at line start.
+                    
+                    if (is_complex_shell_ && !is_fish_) {
+                        // Zsh: Delayed logo injection with ANSI escape sequence tracking.
+                        // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
                         
-                        // For complex shells, we use delayed logo injection with escape sequence tracking.
-                        // 
-                        //    Fish: Prompt rendering is highly complex (RPROMPT, dynamic redraws, cursor jumps).
-                        //    Attempting to inject a logo mid-stream often corrupts visual state.
-                        //    Decision: Skip pass-through logo injection for Fish entirely.
-                        //
-                        //    Zsh: Uses ANSI escape sequences heavily for themes. We must NOT inject
-                        //    the logo inside an escape sequence (e.g., between \x1b and m).
-                        //    Decision: Use a state machine to track ANSI sequences and only inject
-                        //    when fully outside a sequence and seeing printable content.
-                        //
-                        //    Bash/Sh: Simpler prompts. Inject immediately at line start.
-                        
-                        if (is_complex_shell_ && !is_fish_) {
-                            // Zsh: Delayed logo injection with ANSI escape sequence tracking.
-                            // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
-                            
-                            if (pass_through_esc_state_ == 1) {
-                                if (c == '[') pass_through_esc_state_ = 2;
-                                else if (c == ']') pass_through_esc_state_ = 3;
-                                else if (c == '(' || c == ')') pass_through_esc_state_ = 4;
-                                else pass_through_esc_state_ = 0;
-                            } else if (pass_through_esc_state_ == 2) {
-                                if (std::isalpha(static_cast<unsigned char>(c))) pass_through_esc_state_ = 0;
-                            } else if (pass_through_esc_state_ == 3) {
-                                if (c == '\x07') pass_through_esc_state_ = 0;
-                            } else if (pass_through_esc_state_ == 4) {
-                                pass_through_esc_state_ = 0;
-                            } else if (c == '\x1b') {
-                                pass_through_esc_state_ = 1;
-                            } else if (at_line_start_ && config_.show_logo && pty_.is_shell_idle()) {
-                                if (c >= 33 && c < 127) {
-                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                    at_line_start_ = false;
-                                }
+                        if (pass_through_esc_state_ == 1) {
+                            if (c == '[') pass_through_esc_state_ = 2;
+                            else if (c == ']') pass_through_esc_state_ = 3;
+                            else if (c == '(' || c == ')') pass_through_esc_state_ = 4;
+                            else pass_through_esc_state_ = 0;
+                        } else if (pass_through_esc_state_ == 2) {
+                            if (std::isalpha(static_cast<unsigned char>(c))) pass_through_esc_state_ = 0;
+                        } else if (pass_through_esc_state_ == 3) {
+                            if (c == '\x07') pass_through_esc_state_ = 0;
+                        } else if (pass_through_esc_state_ == 4) {
+                            pass_through_esc_state_ = 0;
+                        } else if (c == '\x1b') {
+                            pass_through_esc_state_ = 1;
+                        } else if (at_line_start_ && config_.show_logo && pty_.is_shell_idle()) {
+                            // Zsh (and some others) may output a leading space or carriage return 
+                            // for alignment purposes, especially with right-prompt setups.
+                            // Skipping these ensures our injected logo appears *before* visible content.
+                            if (c == ' ') {
+                                continue;
                             }
-                        } else if (!is_complex_shell_) {
-                            // Simple shells: inject immediately
-                            if (at_line_start_) {
-                                if (c != '\n' && c != '\r' && config_.show_logo && pty_.is_shell_idle()) {
-                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                    at_line_start_ = false;
-                                }
+                            if (c >= 33 && c < 127) {
+                                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                at_line_start_ = false;
                             }
                         }
-                        
-                        write(STDOUT_FILENO, &c, 1);
-                        
-                        if (c == '\n') {
-                            at_line_start_ = true;
-                            prompt_buffer_.clear();
-                        } else if (c == '\r') {
-                            // For complex shells, \r means "back to line start" - keep waiting for content
-                            // For simple shells, \r often means new prompt line
-                            if (!is_complex_shell_) {
-                                at_line_start_ = true;
-                            }
-                        } else if (c >= 32 && c < 127) {
-                            // Regular printable char
-                            if (!is_complex_shell_ || !at_line_start_) {
-                                prompt_buffer_ += c;
-                                if (prompt_buffer_.size() > 100) {
-                                    prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 100);
-                                }
+                    } else if (!is_complex_shell_) {
+                        // Simple shells: inject immediately
+                        if (at_line_start_) {
+                            if (c != '\n' && c != '\r' && config_.show_logo && pty_.is_shell_idle()) {
+                                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                at_line_start_ = false;
                             }
                         }
                     }
                     
-                    // --- PROMPT DETECTION: Set state to IDLE ---
-                    // Check if output ends with a known shell prompt
-                    for (const auto& prompt : config_.shell_prompts) {
-                        if (prompt_buffer_.size() >= prompt.size() &&
-                            prompt_buffer_.substr(prompt_buffer_.size() - prompt.size()) == prompt) {
-                            shell_state_ = ShellState::IDLE;
-                            break;
+                    write(STDOUT_FILENO, &c, 1);
+                    
+                    if (c == '\n') {
+                        at_line_start_ = true;
+                        prompt_buffer_.clear();
+                    } else if (c == '\r') {
+                        // For complex shells, \r means "back to line start"
+                        // For simple shells, \r often means new prompt line
+                        if (!is_complex_shell_) {
+                            at_line_start_ = true;
                         }
+                    } else if (c >= 32 && c < 127) {
+                        // Regular printable char - track for prompt detection
+                        if (!is_complex_shell_ || !at_line_start_) {
+                            prompt_buffer_ += c;
+                            if (prompt_buffer_.size() > 100) {
+                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 100);
+                            }
+                        }
+                    }
+                }
+                
+                // --- PROMPT DETECTION: Set state to IDLE ---
+                // Check if output ends with a known shell prompt
+                for (const auto& prompt : config_.shell_prompts) {
+                    if (prompt_buffer_.size() >= prompt.size() &&
+                        prompt_buffer_.substr(prompt_buffer_.size() - prompt.size()) == prompt) {
+                        shell_state_ = ShellState::IDLE;
+                        break;
                     }
                 }
             }
@@ -657,28 +612,49 @@ namespace dais::core {
                                 history_index_ = command_history_.size();
                                 history_stash_.clear();
                             }
-                            // 1. Detect 'ls'
-                            if (cmd_accumulator == "ls") {
-                                // CWD FIX: Sync OS state before running ls logic
-                                sync_child_cwd(); 
-
-                                intercepting = true;
+                            // 1. Detect 'ls' command (with or without arguments)
+                            if (cmd_accumulator == "ls" || cmd_accumulator.starts_with("ls ")) {
+                                // NATIVE LS: Use std::filesystem instead of shell
+                                // Benefits: No shell compatibility issues, faster, more reliable
                                 
-                                // --- FISH SHELL COMPATIBILITY ---
-                                // Fish often treats 'ls' as a function/alias with default flags (colors, -F) that
-                                // produce output formats DAIS cannot reliably parse (e.g. trailing characters).
-                                // To fix this, we:
-                                // 1. Backspace over the user's "ls" to visually erase it.
-                                // 2. Inject 'command ls -1', which bypasses aliases and functions, ensuring clean output.
-                                if (is_fish_) {
-                                    // Erase "ls" (2 chars) from the shell line
-                                    data_to_write += "\b\b"; 
-                                    data_to_write += "command ls -1";
-                                } else {
-                                    // Standard Shells: Just append the flag.
-                                    // "ls" -> "ls -1"
-                                    data_to_write += " -1";
+                                sync_child_cwd(); // Get actual child shell CWD
+                                
+                                // Parse arguments
+                                auto ls_args = handlers::parse_ls_args(cmd_accumulator);
+                                
+                                // Build format/sort config from current settings
+                                handlers::LSFormats formats;
+                                formats.directory = config_.ls_fmt_directory;
+                                formats.text_file = config_.ls_fmt_text_file;
+                                formats.data_file = config_.ls_fmt_data_file;
+                                formats.binary_file = config_.ls_fmt_binary_file;
+                                
+                                handlers::LSSortConfig sort_cfg;
+                                sort_cfg.by = config_.ls_sort_by;
+                                sort_cfg.order = config_.ls_sort_order;
+                                sort_cfg.dirs_first = config_.ls_dirs_first;
+                                
+                                // Execute native ls
+                                std::string output = handlers::native_ls(
+                                    ls_args, shell_cwd_, formats, sort_cfg, thread_pool_
+                                );
+                                
+                                // Write output directly to terminal
+                                write(STDOUT_FILENO, "\r\n", 2);
+                                if (!output.empty()) {
+                                    write(STDOUT_FILENO, output.c_str(), output.size());
                                 }
+                                
+                                // Cancel the shell's pending input and trigger new prompt
+                                // The user typed "ls" which was forwarded to shell as they typed.
+                                // Send Ctrl+U (clear line) to cancel it, then newline for fresh prompt.
+                                const char* clear_and_prompt = "\x15\n"; // Ctrl+U + newline
+                                write(pty_.get_master_fd(), clear_and_prompt, 2);
+                                
+                                // Clear accumulator and skip writing command to PTY
+                                cmd_accumulator.clear();
+                                at_line_start_ = false; // Prompt will handle this
+                                continue; // Skip the normal PTY write below
                             }
 
                             // 2. Internal Exit Commands
@@ -831,229 +807,7 @@ namespace dais::core {
         }
     }
     
-    // ==================================================================================
-    // OUTPUT PROCESSING
-    // ==================================================================================
 
-    /**
-     * @brief Processes intercepted output before displaying it.
-     * Currently handles 'ls' by handing it off to the command_handlers library.
-     */
-    std::string Engine::process_output(std::string_view raw_output) {
-        std::string final_output;
-        final_output.reserve(raw_output.size() * 3);
-
-        // Separate content from the prompt
-        // Strategy: Find prompt pattern in raw output, then find the newline before it.
-        // For multi-line prompts, check if the previous line contains CWD.
-        
-        // First try to find prompt in raw output directly
-        size_t prompt_pos = std::string::npos;
-        for (const auto& prompt : config_.shell_prompts) {
-            size_t pos = raw_output.rfind(prompt);
-            if (pos != std::string::npos) {
-                prompt_pos = pos;
-                break;
-            }
-        }
-        
-        // If not found in raw, try stripping ANSI from tail and checking
-        if (prompt_pos == std::string::npos) {
-            // Check the last 300 chars (enough for most prompts)
-            size_t tail_start = raw_output.size() > 300 ? raw_output.size() - 300 : 0;
-            std::string tail_raw(raw_output.substr(tail_start));
-            std::string tail_clean = handlers::strip_ansi(tail_raw);
-            
-            for (const auto& prompt : config_.shell_prompts) {
-                if (tail_clean.size() >= prompt.size()) {
-                    size_t clean_pos = tail_clean.rfind(prompt);
-                    if (clean_pos != std::string::npos && 
-                        clean_pos >= tail_clean.size() - prompt.size() - 5) {
-                        // Prompt is at the very end - use last newline
-                        prompt_pos = raw_output.rfind('\n');
-                        if (prompt_pos != std::string::npos) prompt_pos++; // After the newline
-                        break;
-                    }
-                }
-            }
-        }
-        
-        // Find the newline before the prompt
-        size_t split_pos = std::string::npos;
-        if (prompt_pos != std::string::npos && prompt_pos > 0) {
-            split_pos = raw_output.rfind('\n', prompt_pos - 1);
-            
-            if (split_pos != std::string::npos) {
-                // For multi-line prompts, check if previous line contains CWD
-                size_t prev_line_start = (split_pos > 0) ? 
-                    raw_output.rfind('\n', split_pos - 1) : std::string::npos;
-                if (prev_line_start != std::string::npos) {
-                    std::string prev_line = handlers::strip_ansi(
-                        std::string(raw_output.substr(prev_line_start + 1, split_pos - prev_line_start - 1)));
-                    
-                    std::string cwd_str = shell_cwd_.string();
-                    if (prev_line.find(cwd_str) != std::string::npos || 
-                        prev_line.find(shell_cwd_.filename().string()) != std::string::npos) {
-                        split_pos = prev_line_start;
-                    }
-                }
-            }
-        }
-        
-        // Fallback to last newline
-        if (split_pos == std::string::npos) {
-            split_pos = raw_output.rfind('\n');
-        }
-        if (split_pos == std::string::npos) split_pos = raw_output.length();
-
-        std::string_view content_payload = raw_output.substr(0, split_pos);
-        
-        std::string_view prompt_payload = "";
-        if (split_pos < raw_output.length()) {
-            prompt_payload = raw_output.substr(split_pos);
-        }
-
-        // --- THREAD SAFETY: COPY ---
-        std::string cmd_copy;
-        {
-            std::lock_guard<std::mutex> lock(state_mutex_);
-            cmd_copy = current_command_;
-        }
-        // ---------------------------
-
-        // Delegate to handler
-        std::string processed_content;
-        if (cmd_copy == "ls") {
-            //  - Handlers transform plain list into grid
-            // Build LSFormats from config
-            handlers::LSFormats formats;
-            formats.directory = config_.ls_fmt_directory;
-            formats.text_file = config_.ls_fmt_text_file;
-            formats.data_file = config_.ls_fmt_data_file;
-            formats.binary_file = config_.ls_fmt_binary_file;
-            formats.error = config_.ls_fmt_error;
-            
-            // Build LSSortConfig from config
-            handlers::LSSortConfig sort_cfg;
-            sort_cfg.by = config_.ls_sort_by;
-            sort_cfg.order = config_.ls_sort_order;
-            sort_cfg.dirs_first = config_.ls_dirs_first;
-            
-            processed_content = handlers::handle_ls(content_payload, shell_cwd_, formats, sort_cfg, thread_pool_);
-        } else {
-            processed_content = handlers::handle_generic(content_payload);
-        }
-
-        // Reconstruct Output
-        if (!processed_content.empty()) {
-            final_output += "\r\n"; 
-            final_output += processed_content;
-        }
-
-        // Re-attach Prompt with Logo on EACH line (for multi-line prompts)
-        if (!prompt_payload.empty()) {
-            std::string prompt_str(prompt_payload);
-            std::string logo_str = config_.show_logo ? 
-                (handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ") : "";
-            
-            // Trim leading newlines/CRs to prevent extra blank lines
-            size_t first_char = prompt_str.find_first_not_of("\r\n");
-            if (first_char != std::string::npos && first_char > 0) {
-                prompt_str = prompt_str.substr(first_char);
-            } else if (first_char == std::string::npos) {
-                // String is all whitespace
-                prompt_str.clear();
-            }
-            
-            if (prompt_str.empty()) return final_output;
-
-            // Strategy: Split strictly by \n, preserving \r within the lines.
-            // Zsh prompts often have \r to handle right-side prompts.
-            // We inject the logo at the start of the line, or after the leading \r if present.
-            
-            size_t start = 0;
-            size_t end = prompt_str.find('\n');
-            
-            while (start < prompt_str.size()) {
-                // Extract current line (including \r if present, but excluding \n)
-                std::string line = (end == std::string::npos) ? 
-                    prompt_str.substr(start) : prompt_str.substr(start, end - start);
-                
-                final_output += "\r\n"; // Start a new visual line
-                
-                // For Zsh, if line starts with \r, unexpected things happen if we prepend logo.
-                // E.g. "[-] \rPROMPT" -> " PROMPT" (logo overwritten)
-                // "[-] PROMPT" -> works if PROMPT doesn't start with \r
-                
-                // If line isn't empty, inject logo
-                // If line isn't empty, inject logo
-                if (!line.empty()) {
-                    // SMART LOGO INJECTION STRATEGY
-                    // 
-                    // When re-attaching the prompt after an intercepted command (ls),
-                    // we must be careful where we insert the logo.
-                    //
-                    // 1. Zsh/Bash: Often use leading \r to reset cursor or spaces for alignment.
-                    //    If we prepend logo at 0, \r will overwrite it.
-                    //    We scan past \r, spaces, and ANSI codes to inject *before* visible text.
-                    //
-                    // 2. Fish: Skipped entirely here to avoid corruption. Fish's prompt is
-                    //    handled by its own quirks or left bare to ensure stability.
-                    
-                    size_t inject_pos = 0;
-                    
-                    // Skip leading \r, spaces, and ANSI codes to inject before visible content
-                    size_t i = 0;
-                    while (i < line.size()) {
-                        unsigned char c = line[i];
-                        if (c == '\r' || c == ' ') {
-                            i++;
-                        } else if (c == '\x1b' && i + 1 < line.size()) {
-                            // Skip ANSI escape sequence
-                            i++;
-                            if (line[i] == '[') {
-                                i++;
-                                while (i < line.size() && !std::isalpha((unsigned char)line[i])) i++;
-                                if (i < line.size()) i++; // Skip terminator
-                            } else if (line[i] == '(' || line[i] == ')') {
-                                i += 2; // Charset selection
-                            } else {
-                                i++;
-                            }
-                        } else {
-                            break; // Found printable content
-                        }
-                    }
-                    inject_pos = i;
-
-                    if (is_fish_) {
-                        // Fish prompt is too complex for consistent injection.
-                        // Skip logo to avoid corruption (same as pass-through mode).
-                        final_output += line;
-                    } else if (inject_pos > 0 && inject_pos < line.size()) {
-                        // Logo goes in the middle (after reset sequences, before content)
-                        final_output += line.substr(0, inject_pos);
-                        final_output += logo_str;
-                        final_output += line.substr(inject_pos);
-                    } else if (inject_pos == line.size()) {
-                        // No visible ASCII content found
-                        // Skip logo here; the real prompt will come through forward_shell_output.
-                        final_output += line;
-                    } else {
-                        // inject_pos == 0: Content starts at beginning
-                        final_output += logo_str;
-                        final_output += line;
-                    }
-                }
-                
-                if (end == std::string::npos) break;
-                start = end + 1;
-                end = prompt_str.find('\n', start);
-            }
-        }
-
-        return final_output;
-    }
 
     // =========================================================================
     // COMMAND HISTORY (File-Based)
