@@ -8,7 +8,27 @@
 - DAIS is a PTY (pseudoterminal) shell wrapper. 
 - Core is written in C++, that supports Python scripts as extensions.
 
-## Current Features
+### Visual Customization
+DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
+
+**Neon Style** (High Contrast & Vibrant)
+![Neon Style](docs/assets/DAIS_neon.jpg)
+
+**Amber Retro** (Classic Terminal Feel)
+![Amber Retro](docs/assets/DAIS_amber_retro.jpg)
+
+**Deep Sea** (Professional Dark Theme)
+![Deep Sea](docs/assets/DAIS_deepsea.jpg)
+
+**Icon Enhanced** (Informative / Visual)
+![Icon Enhanced](docs/assets/DAIS_icon_enhanced.jpg)
+
+**Basic / Minimalist** (Clean & Simple)
+![Basic Style](docs/assets/DAIS_basic.jpg)
+
+## Under the Hood: Features
+Beyond the visuals, DAIS is built for performance and extensibility.
+
 - **Zero-Latency PTY**: Seamless shell wrapping with native C++ performance.
 - **Python Plugin System**: Extend functionality using standard Python scripts
 - **Smart `ls` Command**:
@@ -40,23 +60,6 @@ DAIS maintains its own file-based history (~/.dais_history) separate from your s
 - **Original Commands**: Saves exactly what you typed (e.g., `ls`, including the projects own runtime : commands).
 - **Context Aware**: Arrow keys only navigate history when the shell is idle; they work normally inside apps like vim or nano.
 
-### Visual Customization
-DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
-
-**Neon Style** (High Contrast & Vibrant)
-![Neon Style](docs/assets/DAIS_neon.jpg)
-
-**Amber Retro** (Classic Terminal Feel)
-![Amber Retro](docs/assets/DAIS_amber_retro.jpg)
-
-**Deep Sea** (Professional Dark Theme)
-![Deep Sea](docs/assets/DAIS_deepsea.jpg)
-
-**Icon Enhanced** (Informative / Visual)
-![Icon Enhanced](docs/assets/DAIS_icon_enhanced.jpg)
-
-**Basic / Minimalist** (Clean & Simple)
-![Basic Style](docs/assets/DAIS_basic.jpg)
 
 ## Scope
 - Projects scope is to create a helpful open-source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
