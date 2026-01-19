@@ -42,18 +42,17 @@ int main() {
 #endif
     // Construct the path to the scripts folder
     fs::path scripts_path = project_root / "src" / "py_scripts";
+    fs::path config_path = project_root / "config";
 
     // Verify it exists (Sanity check to prevent Segfaults)
     if (!fs::exists(scripts_path)) {
         std::cerr << "[\x1b[93m-\x1b[0m] Warning: Could not find Python scripts at: " << scripts_path << "\n";
     }
 
-    std::string path_str = scripts_path.string();
-
     // 3. Load & Run
-    engine.load_configuration(path_str);
-    engine.load_extensions(path_str);
-    
+    engine.load_configuration(config_path);
+    engine.load_extensions(scripts_path);
+
     // The initial window resize will now happen inside run(), 
     // immediately after the PTY starts.
     engine.run();
