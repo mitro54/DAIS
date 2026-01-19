@@ -101,13 +101,12 @@ namespace dais::utils {
             stats.is_data = std::find(FileExtensions::data.begin(), 
                                       FileExtensions::data.end(), ext) != FileExtensions::data.end();
 
-            // Detect Text Files using configurable extension list (data files are also text)
-            stats.is_text = stats.is_data || 
-                            std::find(FileExtensions::text.begin(), 
+            // Detect Text Files using configurable extension list
+            stats.is_text = std::find(FileExtensions::text.begin(), 
                                       FileExtensions::text.end(), ext) != FileExtensions::text.end();
 
             // Skip heavy I/O scanning if empty or binary
-            if (!stats.is_text || stats.size_bytes == 0) return stats;
+            if ((!stats.is_text && !stats.is_data) || stats.size_bytes == 0) return stats;
 
             // 4. Content Scanning (Optimized Zero-Allocation)
             // and string allocations for every line.
