@@ -70,6 +70,7 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
 | `:history` | Show last 20 commands |
 | `:history n` | Show last n commands |
 | `:history clear` | Clear command history |
+| `:help` | Show all available commands |
 | `:q` or `:exit` | Exit DAIS |
 
 ### Command History
