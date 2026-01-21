@@ -46,6 +46,10 @@ namespace dais::core {
         h += S + "  " + V + ":ls true/false" + S + "   " + T + "Dirs first on/off" + R + "\r\n";
         h += S + "  " + V + ":ls d" + S + "            " + T + "Reset to defaults" + R + "\r\n";
         h += "\r\n";
+        h += S + "  Options:" + R + "\r\n";
+        h += S + "    Sort By: " + V + "name, size, type, rows, none" + R + "\r\n";
+        h += S + "    Order:   " + V + "asc, desc" + R + "\r\n";
+        h += "\r\n";
         
         // History & System
         h += U + "History & System" + R + "\r\n";
