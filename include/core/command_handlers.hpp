@@ -196,6 +196,7 @@ namespace dais::core::handlers {
         std::string by = "type";     ///< Sort criterion: "name", "size", "type", "rows", "none"
         std::string order = "asc";   ///< Sort direction: "asc" or "desc"
         bool dirs_first = true;      ///< If true, directories always appear before files
+        std::string flow = "h";      ///< "h" (horizontal) or "v" (vertical)
     };
 
     /**
@@ -523,32 +524,51 @@ namespace dais::core::handlers {
         size_t num_cols = std::max(1ul, (safe_term_width - 4) / cell_width);
         
         std::string output;
-        size_t col = 0;
         
-        for (size_t idx = 0; idx < grid_items.size(); ++idx) {
-            const auto& item = grid_items[idx];
-            if (col == 0) {
-                output += Theme::STRUCTURE + "| " + Theme::RESET;
-            }
-            
-            output += item.display_string;
-            
-            // Safe padding calculation - avoid underflow
-            size_t padding = (item.visible_len < col_width) ? (col_width - item.visible_len) : 1;
-            output += std::string(padding, ' ');
-            
-            output += Theme::STRUCTURE + "|" + Theme::RESET;
-            col++;
-            
-            bool is_row_end = (col >= num_cols);
-            bool is_last_item = (idx == grid_items.size() - 1);
-            
-            if (is_row_end || is_last_item) {
-                output += "\r\n";
-                col = 0;
+        // Calculate number of rows needed
+        size_t total_items = grid_items.size();
+        size_t num_rows = (total_items + num_cols - 1) / num_cols;  // Ceiling division
+        
+        // Helper lambda to render a single cell
+        auto render_cell = [&](size_t item_idx) -> std::string {
+            std::string cell;
+            if (item_idx < grid_items.size()) {
+                const auto& item = grid_items[item_idx];
+                cell += item.display_string;
+                size_t pad = (item.visible_len < col_width) ? (col_width - item.visible_len) : 1;
+                cell += std::string(pad, ' ');
             } else {
-                output += " ";
+                // Empty cell for incomplete last row
+                cell += std::string(col_width, ' ');
             }
+            return cell;
+        };
+        
+        // Build output row by row
+        for (size_t row = 0; row < num_rows; ++row) {
+            output += Theme::STRUCTURE + "| " + Theme::RESET;
+            
+            for (size_t col = 0; col < num_cols; ++col) {
+                size_t item_idx;
+                if (sort_cfg.flow == "v") {
+                    // Vertical flow: items go down columns first
+                    item_idx = col * num_rows + row;
+                } else {
+                    // Horizontal flow (default): items go across rows first
+                    item_idx = row * num_cols + col;
+                }
+                
+                if (item_idx < total_items) {
+                    output += render_cell(item_idx);
+                    output += Theme::STRUCTURE + "|" + Theme::RESET;
+                    
+                    // Add space between cells except at end of row
+                    if (col < num_cols - 1 && (row * num_cols + col + 1) < total_items) {
+                        output += " ";
+                    }
+                }
+            }
+            output += "\r\n";
         }
         
         return output;

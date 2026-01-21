@@ -49,6 +49,7 @@ namespace dais::core {
         h += S + "  Options:" + R + "\r\n";
         h += S + "    Sort By: " + V + "name, size, type, rows, none" + R + "\r\n";
         h += S + "    Order:   " + V + "asc, desc" + R + "\r\n";
+        h += S + "    Flow:    " + V + "h (horizontal), v (vertical)" + R + "\r\n";
         h += "\r\n";
         
         // History & System

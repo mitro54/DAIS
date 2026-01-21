@@ -53,6 +53,7 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
 - **Sort Field**: `name`, `size`, `type`, `rows`, `none`
 - **Order**: `asc`, `desc`
 - **Group Directories**: `true` (dirs first), `false` (mixed)
+- **Flow Direction**: `h` (horizontal, default), `v` (vertical)
 - **Reset**: `d` or `default` (reset to config defaults)
 
 **Examples:**
@@ -61,6 +62,7 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
 | `:ls` | Show current settings |
 | `:ls size desc` | Sort by size, descending |
 | `:ls type, asc` | Sort by type, ascending (comma separated) |
+| `:ls v` | Use vertical flow (column-by-column) |
 | `:ls false` | Disable "directories first" grouping |
 | `:ls d` | Reset to defaults |
 

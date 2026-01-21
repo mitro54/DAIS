@@ -224,6 +224,7 @@ namespace dais::core {
                 if (sort.contains("by")) config_.ls_sort_by = sort["by"].cast<std::string>();
                 if (sort.contains("order")) config_.ls_sort_order = sort["order"].cast<std::string>();
                 if (sort.contains("dirs_first")) config_.ls_dirs_first = sort["dirs_first"].cast<bool>();
+                if (sort.contains("flow")) config_.ls_flow = sort["flow"].cast<std::string>();
             }
 
             // Debug Print
@@ -814,6 +815,7 @@ namespace dais::core {
                                 sort_cfg.by = config_.ls_sort_by;
                                 sort_cfg.order = config_.ls_sort_order;
                                 sort_cfg.dirs_first = config_.ls_dirs_first;
+                                sort_cfg.flow = config_.ls_flow;
                                 
                                 // Execute native ls
                                 std::string output = handlers::native_ls(
@@ -858,15 +860,17 @@ namespace dais::core {
                                 std::string msg;
                                 if (args.empty()) {
                                     // Show current settings
-                                    msg = "ls sort: by=" + config_.ls_sort_by + 
+                                    msg = "ls: by=" + config_.ls_sort_by + 
                                           ", order=" + config_.ls_sort_order + 
-                                          ", dirs_first=" + (config_.ls_dirs_first ? "true" : "false");
+                                          ", dirs_first=" + (config_.ls_dirs_first ? "true" : "false") +
+                                          ", flow=" + config_.ls_flow;
                                 } else if (args == "d") {
                                     // Reset to defaults
                                     config_.ls_sort_by = "type";
                                     config_.ls_sort_order = "asc";
                                     config_.ls_dirs_first = true;
-                                    msg = "ls sort: by=type, order=asc, dirs_first=true (defaults)";
+                                    config_.ls_flow = "h";
+                                    msg = "ls: by=type, order=asc, dirs_first=true, flow=h (defaults)";
                                 } else {
                                     // Flexible parsing: iterate over all parts and match keywords
                                     std::vector<std::string> parts;
@@ -896,11 +900,19 @@ namespace dais::core {
                                         else if (p == "false" || p == "0") {
                                             config_.ls_dirs_first = false;
                                         }
+                                        // 4. Flow Direction
+                                        else if (p == "h" || p == "horizontal") {
+                                            config_.ls_flow = "h";
+                                        }
+                                        else if (p == "v" || p == "vertical") {
+                                            config_.ls_flow = "v";
+                                        }
                                     }
                                     
-                                    msg = "ls sort: by=" + config_.ls_sort_by + 
+                                    msg = "ls: by=" + config_.ls_sort_by + 
                                           ", order=" + config_.ls_sort_order + 
-                                          ", dirs_first=" + (config_.ls_dirs_first ? "true" : "false");
+                                          ", dirs_first=" + (config_.ls_dirs_first ? "true" : "false") +
+                                          ", flow=" + config_.ls_flow;
                                 }
                                 
                                 // Print feedback and new prompt

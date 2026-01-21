@@ -51,7 +51,8 @@ DATA_EXTENSIONS = [
 LS_SORT = {
     "by": "type",        # "name", "size", "type", "rows", "none"
     "order": "asc",      # "asc" or "desc"
-    "dirs_first": True   # Group directories before files
+    "dirs_first": True,  # Group directories before files
+    "flow": "h"          # "h" (horizontal) or "v" (vertical)
 }
 
 # ==================================================================================
