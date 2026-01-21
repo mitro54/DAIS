@@ -11,6 +11,7 @@
 
 #include "core/engine.hpp"
 #include "core/command_handlers.hpp"
+#include "core/help_text.hpp"
 #include <thread>
 #include <array>
 #include <string>
@@ -179,6 +180,7 @@ namespace dais::core {
                 load_color("SUCCESS", handlers::Theme::SUCCESS);
                 load_color("WARNING", handlers::Theme::WARNING);
                 load_color("ERROR", handlers::Theme::ERROR);
+                load_color("NOTICE", handlers::Theme::NOTICE);
             }
 
             // 4. LS FORMAT TEMPLATES
@@ -917,6 +919,16 @@ namespace dais::core {
                                 if (!args.empty() && args[0] == ' ') args = args.substr(1);
                                 
                                 show_history(args);
+                                
+                                cmd_accumulator.clear();
+                                write(pty_.get_master_fd(), "\n", 1);
+                                continue;
+                            }
+                            
+                            // 5. Help Command
+                            // :help - Show all available DAIS commands
+                            if (cmd_accumulator == ":help") {
+                                std::cout << "\r\n" << get_help_text() << std::flush;
                                 
                                 cmd_accumulator.clear();
                                 write(pty_.get_master_fd(), "\n", 1);
