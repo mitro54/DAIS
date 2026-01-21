@@ -293,6 +293,7 @@ namespace dais::core::handlers {
     struct LSArgs {
         bool show_hidden = false;   ///< -a or --all flag
         bool supported = true;      ///< If false, flags are too complex for native ls
+        int padding = 4;            ///< Grid padding (spaces between columns)
         std::vector<std::string> paths;  ///< Target directories/files
     };
     
@@ -497,13 +498,29 @@ namespace dais::core::handlers {
          * 
          * Layout strategy:
          * - Each cell includes: "| " (prefix) + Content + Padding + "|" (suffix)
-         * - Total width per cell = max_content_len + 7 chars
-         * - We use a conservative calculation (term_width - 4) to ensure the
-         *   leading "| " and trailing " |" fit without wrapping.
+         * - Total width per cell = max_content + padding + 3 (borders/spacing)
+         * - Padding is configurable via config.py (LS_PADDING)
          */
-        size_t col_width = max_len + 4;     ///< Content width + generous padding
-        size_t cell_width = col_width + 3;  ///< Total cell width including borders
-        size_t num_cols = std::max(1ul, (static_cast<size_t>(term_width) - 4) / cell_width);
+        
+        // 1. Calculate usable width for content
+        // We need 4 chars for row borders ("| " ... " |") + 3 chars per cell overhead
+        // Use a 12-char safety margin to be extremely conservative against wrapping
+        size_t safety_margin = 12;
+        size_t safe_term_width = (static_cast<size_t>(term_width) > safety_margin) ? static_cast<size_t>(term_width) : 80;
+        size_t max_possible_padding = 1;
+        
+        // Ensure even the longest file fits in one column with minimal overhead
+        if (safe_term_width > (max_len + safety_margin)) {
+            max_possible_padding = safe_term_width - max_len - safety_margin;
+        }
+
+        // 2. Clamp padding to valid range [1, max_possible]
+        int effective_padding = std::max(1, args.padding);
+        effective_padding = std::min(effective_padding, static_cast<int>(max_possible_padding));
+
+        size_t col_width = max_len + effective_padding;     ///< Content width + user-defined padding
+        size_t cell_width = col_width + 3;             ///< Total cell width incl. prefix "| " and suffix "|"
+        size_t num_cols = std::max(1ul, (safe_term_width - 4) / cell_width);
         
         std::string output;
         size_t col = 0;

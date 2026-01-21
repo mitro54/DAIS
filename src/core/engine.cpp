@@ -158,6 +158,10 @@ namespace dais::core {
                 }
             }
 
+            if (py::hasattr(conf_module, "LS_PADDING")) {
+                config_.ls_padding = conf_module.attr("LS_PADDING").cast<int>();
+            }
+
             // 3. THEME LOADING
             if (py::hasattr(conf_module, "THEME")) {
                 py::dict theme = conf_module.attr("THEME").cast<py::dict>();
@@ -772,6 +776,7 @@ namespace dais::core {
                                 
                                 // Parse arguments
                                 auto ls_args = handlers::parse_ls_args(cmd_accumulator);
+                                ls_args.padding = config_.ls_padding; // Apply user config padding
                                 
                                 // When tab was used, resolve partial paths using fuzzy matching
                                 std::string resolved_cmd = cmd_accumulator;

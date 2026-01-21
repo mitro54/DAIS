@@ -57,6 +57,11 @@ LS_SORT = {
 # ==================================================================================
 # LS OUTPUT FORMATTING
 # ==================================================================================
+# Configure the visual spacing of the 'ls' grid.
+# Increase this value for more breathing room, decrease for a tighter grid.
+LS_PADDING = 2  # default: 2 spaces (min: 1) (max: depends on terminal width)
+
+
 # Customize how 'ls' output is displayed using format templates.
 #
 # Data placeholders:

@@ -59,6 +59,7 @@ namespace dais::core {
         std::string ls_sort_by = "type";      ///< "name", "size", "type", "rows", "none"
         std::string ls_sort_order = "asc";    ///< "asc" or "desc"
         bool ls_dirs_first = true;            ///< Group directories before files
+        int ls_padding = 4;                   ///< Grid padding (spaces between columns)
     };
 
     class Engine {
