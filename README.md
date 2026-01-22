@@ -95,7 +95,7 @@ The project has been tested on **Ubuntu 24.04**, **Debian 13**, **Fedora 40**, *
 
 ### 1. Install dependencies
 Choose your operating system:
-- **Docker** does not need `sudo`, try without it if the command fails
+- **Docker** does not need `sudo`, try the commands without it if the command fails
 - Make sure your **g++ version is at least 13** to support **C++20**
 
 #### Ubuntu 24.04 LTS and Debian 13
@@ -106,7 +106,7 @@ Choose your operating system:
 - `sudo dnf install gcc-c++ cmake make python3-devel git`
 
 #### Arch Linux
-- `sudo pacman -S base-devel cmake python git`
+- `sudo pacman -Sy base-devel cmake python git`
 
 #### Alpine Linux
 - `sudo apk add build-base cmake python3-dev git`
