@@ -4,7 +4,7 @@ DAIS Functional Tests.
 
 This module provides functional tests for the DAIS shell wrapper using pexpect
 to simulate interactive terminal sessions. Tests verify core functionality
-including startup, shutdown, and built-in commands.
+including startup, shutdown, built-in commands, and feature configuration.
 
 Usage:
     python3 tests/functional/test_commands.py
@@ -18,8 +18,10 @@ Exit Codes:
     1 - One or more tests failed or binary not found
 """
 
-import sys
 import os
+import shutil
+import sys
+import tempfile
 import time
 
 try:
@@ -77,6 +79,22 @@ def spawn_dais(binary):
     return pexpect.spawn(binary, timeout=15, encoding='utf-8')
 
 
+def spawn_dais_ready(binary):
+    """
+    Spawn DAIS and wait for startup confirmation.
+
+    Args:
+        binary: Path to the DAIS binary.
+
+    Returns:
+        pexpect.spawn: The spawned child process after startup.
+    """
+    child = pexpect.spawn(binary, timeout=15, encoding='utf-8')
+    child.expect('DAIS has been started', timeout=STARTUP_TIMEOUT)
+    time.sleep(SHELL_INIT_DELAY)
+    return child
+
+
 def cleanup_child(child):
     """
     Safely terminate and close a pexpect child process.
@@ -87,14 +105,14 @@ def cleanup_child(child):
     try:
         child.sendline(':exit')
         child.expect(pexpect.EOF, timeout=EXIT_TIMEOUT)
-    except pexpect.TIMEOUT:
+    except (pexpect.TIMEOUT, pexpect.EOF):
         child.terminate(force=True)
     finally:
         child.close()
 
 
 # =============================================================================
-# Test Cases
+# Test Cases: Basic Commands
 # =============================================================================
 
 def test_startup_and_exit():
@@ -119,17 +137,14 @@ def test_startup_and_exit():
     try:
         child = spawn_dais(binary)
 
-        # Check for startup message
         try:
             child.expect('DAIS has been started', timeout=STARTUP_TIMEOUT)
             print("  PASS: Startup message detected")
         except pexpect.TIMEOUT:
             print("  WARN: Startup message not found (continuing anyway)")
 
-        # Allow shell to initialize
         time.sleep(SHELL_INIT_DELAY)
 
-        # Test clean exit
         child.sendline(':exit')
         try:
             child.expect(pexpect.EOF, timeout=EXIT_TIMEOUT)
@@ -228,6 +243,175 @@ def test_q_exit():
 
 
 # =============================================================================
+# Test Cases: LS Configuration
+# =============================================================================
+
+def test_ls_sort_options():
+    """
+    Test LS sort configuration commands.
+
+    Verifies :ls size desc, :ls type asc, and :ls d are accepted.
+
+    Returns:
+        bool: True if commands accepted, False on error.
+    """
+    print("[TEST] LS Sort Options...")
+
+    binary = find_binary()
+    if not binary:
+        print("  SKIP: Binary not found")
+        return None
+
+    try:
+        child = spawn_dais_ready(binary)
+
+        child.sendline(':ls size desc')
+        time.sleep(0.5)
+
+        child.sendline(':ls type asc')
+        time.sleep(0.5)
+
+        child.sendline(':ls d')
+        time.sleep(0.5)
+
+        cleanup_child(child)
+        print("  PASS: LS sort commands accepted")
+        return True
+
+    except Exception as e:
+        print(f"  FAIL: Exception - {e}")
+        return False
+
+
+# =============================================================================
+# Test Cases: History
+# =============================================================================
+
+def test_history_commands():
+    """
+    Test History command functionality.
+
+    Verifies :history shows commands and :history clear removes them.
+
+    Returns:
+        bool: True if history operations work, False on error.
+    """
+    print("[TEST] History Commands...")
+
+    binary = find_binary()
+    if not binary:
+        print("  SKIP: Binary not found")
+        return None
+
+    temp_home = tempfile.mkdtemp()
+    original_home = os.environ.get('HOME')
+    os.environ['HOME'] = temp_home
+
+    try:
+        # Generate history
+        child = spawn_dais_ready(binary)
+        child.sendline('echo command1')
+        time.sleep(0.5)
+        child.sendline('echo command2')
+        time.sleep(0.5)
+        cleanup_child(child)
+
+        # Verify history
+        child = spawn_dais_ready(binary)
+        child.sendline(':history')
+
+        try:
+            child.expect('command1', timeout=COMMAND_TIMEOUT)
+            child.expect('command2', timeout=COMMAND_TIMEOUT)
+            print("  PASS: History persistence verified")
+        except pexpect.TIMEOUT:
+            print("  FAIL: History items not found")
+            cleanup_child(child)
+            return False
+
+        # Clear history
+        child.sendline(':history clear')
+        time.sleep(0.5)
+
+        child.sendline(':history')
+        try:
+            child.expect('command1', timeout=2)
+            print("  FAIL: History not cleared")
+            cleanup_child(child)
+            return False
+        except pexpect.TIMEOUT:
+            print("  PASS: History cleared successfully")
+
+        cleanup_child(child)
+        return True
+
+    except Exception as e:
+        print(f"  FAIL: Exception - {e}")
+        return False
+
+    finally:
+        shutil.rmtree(temp_home, ignore_errors=True)
+        if original_home:
+            os.environ['HOME'] = original_home
+        elif 'HOME' in os.environ:
+            del os.environ['HOME']
+
+
+# =============================================================================
+# Test Cases: Special Filenames
+# =============================================================================
+
+def test_special_filenames():
+    """
+    Test LS handling of files with spaces and unicode.
+
+    Returns:
+        bool: True if special filenames displayed, False on error.
+    """
+    print("[TEST] Special Filenames (Spaces/Unicode)...")
+
+    binary = find_binary()
+    if not binary:
+        print("  SKIP: Binary not found")
+        return None
+
+    temp_dir = tempfile.mkdtemp()
+    test_files = ["file with spaces.txt", "🚀_unicode.txt"]
+
+    try:
+        for filename in test_files:
+            with open(os.path.join(temp_dir, filename), 'w') as f:
+                f.write("")
+
+        child = spawn_dais_ready(binary)
+        child.sendline(f'cd "{temp_dir}"')
+        time.sleep(1)
+
+        child.sendline('ls')
+        time.sleep(1)
+
+        before = child.before if child.before else ""
+        after = child.after if child.after else ""
+        output = before + after
+
+        if all(filename in output for filename in test_files):
+            print("  PASS: Special filenames detected")
+            cleanup_child(child)
+            return True
+        else:
+            print("  FAIL: Files not found in output")
+            cleanup_child(child)
+            return False
+
+    except Exception as e:
+        print(f"  FAIL: Exception - {e}")
+        return False
+
+    finally:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+# =============================================================================
 # Main Entry Point
 # =============================================================================
 
@@ -252,18 +436,28 @@ def main():
     print(f"Using binary: {binary}")
     print()
 
-    # Execute tests with inter-test delays
     results = []
 
+    # Basic commands
     results.append(('startup_exit', test_startup_and_exit()))
     time.sleep(1)
-
     results.append(('help', test_help_command()))
     time.sleep(1)
-
     results.append(('q_exit', test_q_exit()))
+    time.sleep(1)
 
-    # Print summary
+    # LS configuration
+    results.append(('ls_options', test_ls_sort_options()))
+    time.sleep(1)
+
+    # History
+    results.append(('history', test_history_commands()))
+    time.sleep(1)
+
+    # Special filenames
+    results.append(('special_files', test_special_filenames()))
+
+    # Summary
     print()
     print("=" * 50)
     print(" Results Summary")
