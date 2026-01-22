@@ -1,11 +1,12 @@
 # Arch Linux Build Environment for DAIS
 FROM archlinux:latest
 
-# Update and install build dependencies (matching README instructions)
+# Update and install build dependencies (matching README instructions) + pip for tests
 RUN pacman -Sy --noconfirm \
     base-devel \
     cmake \
     python \
+    python-pip \
     git \
     && pacman -Scc --noconfirm
 
