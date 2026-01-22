@@ -67,7 +67,7 @@ namespace dais::core {
         if (child_pid_ == 0) {
             // A. Auto-detect user's preferred shell
             const char* shell = std::getenv("SHELL");
-            if (!shell) shell = "/bin/bash";
+            if (!shell) shell = "/bin/sh";
 
             // B. macOS/Apple Terminal Fix
             // Apple injects scripts to save session history which requires IPC with Terminal.app.

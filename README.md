@@ -40,7 +40,7 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Flexible Usage**: Styling applies seamlessly to `ls -a` (hidden files) and `ls /absolute/path`
 - **Compatibility**:
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
-    - **Shell Support**: Tested on **Bash**, **Zsh**, and **Fish**
+    - **Shell Support**: Tested on **Bash**, **Ash**, **Zsh**, and **Fish**
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
 
@@ -91,10 +91,30 @@ DAIS maintains its own file-based history (~/.dais_history) separate from your s
 Why not, terminals should be smarter
 
 ## Build
+The project has been tested on **Ubuntu 24.04**, **Debian 13**, **Fedora 40**, **Arch Linux**, **Alpine 3.20**, and **macOS**.
+
 ### 1. Install dependencies
+Choose your operating system:
+- Docker does not need sudo, try without it if the command fails
+- Make sure your g++ version is at least 13 to support C++20
+
 #### Ubuntu 24.04 LTS
 - `sudo apt update`
-- `sudo apt install build-essential cmake python3-dev g++-13`
+- `sudo apt install build-essential cmake python3-dev git`
+
+#### Debian 13
+- `sudo apt update`
+- `sudo apt install build-essential cmake python3-dev git`
+
+#### Fedora 40
+- `sudo dnf install gcc-c++ cmake make python3-devel git`
+
+#### Arch Linux
+- `sudo pacman -S base-devel cmake python git`
+
+#### Alpine Linux
+- `sudo apk add build-base cmake python3-dev git`
+
 #### macOS
 - `xcode-select --install`
 - `brew install cmake python`
