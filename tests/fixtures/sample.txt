@@ -1,0 +1,10 @@
+This is a sample text file for DAIS ls testing.
+Line 2 of the file.
+Line 3 with some data.
+Line 4 continues here.
+Line 5 is a medium length line.
+Line 6 has more content for testing.
+Line 7 checks line counting.
+Line 8 is near the end.
+Line 9 is almost done.
+Line 10 is the final line.

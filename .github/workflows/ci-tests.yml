@@ -1,0 +1,149 @@
+# ============================================================================
+# DAIS CI/CD Pipeline
+# ============================================================================
+# Automated testing on multiple Linux distributions + macOS
+# Includes multi-shell testing (bash, zsh, fish)
+# ============================================================================
+
+name: CI Tests
+
+on:
+  push:
+    branches: [main, feature/docker-tests]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ==========================================================================
+  # Linux Docker Builds
+  # ==========================================================================
+  linux-docker:
+    name: Build on ${{ matrix.distro }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - distro: ubuntu-24.04
+            dockerfile: tests/docker/ubuntu-24.04.Dockerfile
+          - distro: debian-13
+            dockerfile: tests/docker/debian-13.Dockerfile
+          - distro: fedora-40
+            dockerfile: tests/docker/fedora-40.Dockerfile
+          - distro: arch
+            dockerfile: tests/docker/arch.Dockerfile
+          - distro: alpine-3.20
+            dockerfile: tests/docker/alpine-3.20.Dockerfile
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          push: false
+          load: true
+          tags: dais-test:${{ matrix.distro }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run build tests
+        run: |
+          docker run --rm dais-test:${{ matrix.distro }} bash ./tests/test_build.sh
+
+      - name: Run functional tests
+        run: |
+          docker run --rm -t dais-test:${{ matrix.distro }} bash -c "
+            pip3 install pexpect --break-system-packages 2>/dev/null || pip3 install pexpect
+            python3 tests/functional/test_commands.py
+          "
+
+      - name: Run LS tests with bash
+        run: |
+          docker run --rm -t -e SHELL=/bin/bash dais-test:${{ matrix.distro }} bash -c "
+            pip3 install pexpect --break-system-packages 2>/dev/null || pip3 install pexpect
+            python3 tests/functional/test_ls_output.py
+          "
+
+      - name: Run LS tests with zsh
+        run: |
+          docker run --rm -t -e SHELL=/bin/zsh dais-test:${{ matrix.distro }} bash -c "
+            pip3 install pexpect --break-system-packages 2>/dev/null || pip3 install pexpect
+            python3 tests/functional/test_ls_output.py
+          "
+
+      - name: Run LS tests with fish
+        run: |
+          docker run --rm -t -e SHELL=/usr/bin/fish dais-test:${{ matrix.distro }} bash -c "
+            pip3 install pexpect --break-system-packages 2>/dev/null || pip3 install pexpect
+            python3 tests/functional/test_ls_output.py
+          "
+
+  # ==========================================================================
+  # macOS Native Build
+  # ==========================================================================
+  macos:
+    name: Build on macOS
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew install cmake python fish
+
+      - name: Build DAIS
+        run: |
+          mkdir -p build
+          cd build
+          cmake ..
+          make
+
+      - name: Run build tests
+        run: |
+          chmod +x tests/test_build.sh
+          bash ./tests/test_build.sh
+
+      - name: Run functional tests
+        run: |
+          pip3 install pexpect --break-system-packages || pip3 install pexpect
+          python3 tests/functional/test_commands.py
+
+      - name: Run LS tests with bash
+        run: |
+          pip3 install pexpect --break-system-packages || pip3 install pexpect
+          SHELL=/bin/bash python3 tests/functional/test_ls_output.py
+
+      - name: Run LS tests with zsh
+        run: |
+          SHELL=/bin/zsh python3 tests/functional/test_ls_output.py
+
+      - name: Run LS tests with fish
+        run: |
+          SHELL=/opt/homebrew/bin/fish python3 tests/functional/test_ls_output.py
+
+  # ==========================================================================
+  # Summary Job
+  # ==========================================================================
+  test-summary:
+    name: All Tests Summary
+    runs-on: ubuntu-latest
+    needs: [linux-docker, macos]
+    if: always()
+    
+    steps:
+      - name: Check test results
+        run: |
+          if [ "${{ needs.linux-docker.result }}" == "failure" ] || [ "${{ needs.macos.result }}" == "failure" ]; then
+            echo "Some tests failed!"
+            exit 1
+          fi
+          echo "All tests passed!"

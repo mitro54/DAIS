@@ -1,6 +1,8 @@
 # &lt; DATA / AI SHELL >
 ## ... [<span style="color:#ff00ff">-</span>] DAIS
 
+![CI Tests](https://github.com/mitro54/DAIS/actions/workflows/ci-tests.yml/badge.svg)
+
 - In researching / early development stage
 - Currently meets the MVP requirements stated in roadmap.md
 
@@ -132,3 +134,31 @@ Choose your operating system:
 
 ### 5. Run it (if you did not do 4.1)
 `./DAIS`
+
+## Testing
+
+DAIS includes automated tests for multiple platforms. Tests run automatically via GitHub Actions on push/PR.
+
+### Run Tests Locally
+
+**Build verification:**
+```bash
+./tests/test_build.sh
+```
+
+**Functional tests (requires pexpect):**
+```bash
+pip install pexpect
+python3 tests/functional/test_commands.py
+```
+
+### Docker Tests
+
+Test DAIS on specific distributions:
+```bash
+# Build and test on Ubuntu
+docker build -f tests/docker/ubuntu-24.04.Dockerfile -t dais-test .
+docker run --rm dais-test ./tests/test_build.sh
+```
+
+Available Dockerfiles: `ubuntu-24.04`, `debian-13`, `fedora-40`, `arch`, `alpine-3.20`
