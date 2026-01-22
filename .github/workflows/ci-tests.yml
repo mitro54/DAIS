@@ -9,7 +9,10 @@ name: CI Tests
 
 on:
   push:
-    branches: [main, feature/docker-tests]
+    branches: 
+      - main
+      - 'feature/**'
+      - 'documentation/**'
   pull_request:
     branches: [main]
 
