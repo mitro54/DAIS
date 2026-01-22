@@ -72,8 +72,10 @@ def test_ls_basic(binary, fixtures_dir):
         child.sendline('ls')
         time.sleep(2)
         
-        # Capture output
-        output = child.before + child.after if child.after else child.before
+        # Capture output - handle None values
+        before = child.before if child.before else ""
+        after = child.after if child.after else ""
+        output = before + after
         
         # Check for expected files in output
         expected_files = ['sample.txt', 'data.csv', 'binary.bin', 'subdir']
