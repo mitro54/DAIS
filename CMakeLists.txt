@@ -9,6 +9,21 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# =============================================================================
+# Code Coverage Support (gcov/lcov)
+# =============================================================================
+# Enable with: cmake -DENABLE_COVERAGE=ON ..
+# Then run tests and use lcov to generate report
+option(ENABLE_COVERAGE "Enable code coverage instrumentation (gcov/lcov)" OFF)
+
+if(ENABLE_COVERAGE)
+    message(STATUS "Code coverage enabled")
+    # GCC/Clang coverage flags
+    # -fprofile-update=atomic: Fixes negative counts in multi-threaded code (thread-safety)
+    add_compile_options(--coverage -fprofile-arcs -ftest-coverage -fprofile-update=atomic)
+    add_link_options(--coverage)
+endif()
+
 # Pass the absolute project path to C++ code.
 # This ensures DAIS finds 'src/py_scripts' even if you run it via an alias or from another folder.
 add_compile_definitions(DAIS_ROOT="${CMAKE_SOURCE_DIR}")

@@ -138,12 +138,68 @@ jobs:
           SHELL=/opt/homebrew/bin/fish python3 tests/functional/test_ls_output.py
 
   # ==========================================================================
+  # Code Coverage (Ubuntu only)
+  # ==========================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake python3-dev python3-pip lcov
+
+      - name: Build with coverage
+        run: |
+          mkdir -p build
+          cd build
+          cmake -DENABLE_COVERAGE=ON ..
+          make
+
+      - name: Install pexpect
+        run: pip3 install pexpect --break-system-packages || pip3 install pexpect
+
+      - name: Run tests (generates .gcda files)
+        run: |
+          # Run tests to generate coverage data
+          # Tests may fail but we still want coverage of executed paths
+          python3 tests/functional/test_commands.py || echo "⚠️ test_commands.py had failures"
+          python3 tests/functional/test_ls_output.py || echo "⚠️ test_ls_output.py had failures"
+
+      - name: Generate coverage report
+        run: |
+          chmod +x scripts/generate_coverage.sh
+          ./scripts/generate_coverage.sh build
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 30
+
+      - name: Deploy to GitHub Pages
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./coverage
+          destination_dir: coverage
+          commit_message: "Update coverage report"
+
+  # ==========================================================================
   # Summary Job
   # ==========================================================================
   test-summary:
     name: All Tests Summary
     runs-on: ubuntu-latest
-    needs: [linux-docker, macos]
+    needs: [linux-docker, macos, coverage]
     if: always()
     
     steps:
@@ -154,3 +210,6 @@ jobs:
             exit 1
           fi
           echo "All tests passed!"
+          if [ "${{ needs.coverage.result }}" == "success" ]; then
+            echo "Coverage report generated successfully!"
+          fi

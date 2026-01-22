@@ -3,7 +3,7 @@ FROM ubuntu:24.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install build dependencies + pip for tests + shells for multi-shell testing
+# Install build dependencies + pip for tests + shells + coverage tools
 RUN apt-get update && apt-get install -y \
     build-essential \
     cmake \
@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     git \
     zsh \
     fish \
+    lcov \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
