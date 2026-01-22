@@ -95,8 +95,8 @@ The project has been tested on **Ubuntu 24.04**, **Debian 13**, **Fedora 40**, *
 
 ### 1. Install dependencies
 Choose your operating system:
-- Docker does not need sudo, try without it if the command fails
-- Make sure your g++ version is at least 13 to support C++20
+- **Docker** does not need `sudo`, try without it if the command fails
+- Make sure your **g++ version is at least 13** to support **C++20**
 
 #### Ubuntu 24.04 LTS and Debian 13
 - `sudo apt update`
