@@ -42,7 +42,6 @@ STARTUP_TIMEOUT = 10  # Seconds to wait for DAIS startup message
 COMMAND_TIMEOUT = 5   # Seconds to wait for command responses
 EXIT_TIMEOUT = 10     # Seconds to wait for clean exit
 SHELL_INIT_DELAY = 3  # Seconds to allow shell initialization
-LS_OUTPUT_DELAY = 2   # Seconds to wait for ls output to complete
 
 
 # =============================================================================
@@ -102,39 +101,31 @@ def get_current_shell():
     return os.path.basename(shell)
 
 
-def spawn_dais(binary):
+def spawn_dais_ready(binary):
     """
-    Spawn a new DAIS process with PTY allocation.
+    Spawn DAIS and wait for startup confirmation.
 
     Args:
         binary: Path to the DAIS binary.
 
     Returns:
-        pexpect.spawn: The spawned child process.
+        pexpect.spawn: The spawned child process after startup.
     """
-    return pexpect.spawn(binary, timeout=20, encoding='utf-8')
-
-
-def get_output(child):
-    """
-    Safely retrieve buffered output from a pexpect child.
-
-    Handles None values that can occur when no output has been captured.
-
-    Args:
-        child: The pexpect child process.
-
-    Returns:
-        str: Combined before/after buffer contents, or empty string.
-    """
-    before = child.before if child.before else ""
-    after = child.after if child.after else ""
-    return before + after
+    child = pexpect.spawn(binary, timeout=20, encoding='utf-8')
+    try:
+        child.expect('DAIS has been started', timeout=STARTUP_TIMEOUT)
+    except pexpect.TIMEOUT:
+        pass  # Continue anyway
+    time.sleep(SHELL_INIT_DELAY)
+    return child
 
 
 def cleanup_child(child):
     """
     Safely terminate and close a pexpect child process.
+
+    Attempts a clean exit via :exit command first, then forces termination
+    if the process doesn't respond within EXIT_TIMEOUT.
 
     Args:
         child: The pexpect child process to clean up.
@@ -142,7 +133,7 @@ def cleanup_child(child):
     try:
         child.sendline(':exit')
         child.expect(pexpect.EOF, timeout=EXIT_TIMEOUT)
-    except pexpect.TIMEOUT:
+    except (pexpect.TIMEOUT, pexpect.EOF):
         child.terminate(force=True)
     finally:
         child.close()
@@ -163,20 +154,20 @@ def test_shell_startup(binary):
         binary: Path to the DAIS binary.
 
     Returns:
-        bool: True if startup succeeded, False if failed, None if skipped.
+        bool: True if startup succeeded, False if failed.
     """
     print(f"[TEST] Shell startup (shell: {get_current_shell()})...")
 
     try:
-        child = spawn_dais(binary)
+        child = pexpect.spawn(binary, timeout=20, encoding='utf-8')
 
         try:
             child.expect('DAIS has been started', timeout=STARTUP_TIMEOUT)
             print("  PASS: DAIS started successfully")
             success = True
         except pexpect.TIMEOUT:
-            print("  WARN: Startup message not found (may still work)")
-            success = True
+            print("  FAIL: DAIS startup message not found")
+            success = False
 
         time.sleep(1)
         cleanup_child(child)
@@ -192,7 +183,8 @@ def test_ls_basic(binary, fixtures_dir):
     Verify the ls command displays expected fixture files.
 
     Tests that DAIS's custom ls implementation correctly lists files in
-    the fixtures directory. Checks for presence of known test files.
+    the fixtures directory. Uses `ls` with explicit path to avoid CWD
+    synchronization issues. Checks for presence of known test files.
 
     Args:
         binary: Path to the DAIS binary.
@@ -204,33 +196,21 @@ def test_ls_basic(binary, fixtures_dir):
     print(f"[TEST] Basic ls output (shell: {get_current_shell()})...")
 
     try:
-        child = spawn_dais(binary)
-        time.sleep(SHELL_INIT_DELAY)
+        child = spawn_dais_ready(binary)
 
-        # Navigate to fixtures directory
-        child.sendline(f'cd {fixtures_dir}')
-        time.sleep(1)
+        # Use ls with explicit path - avoids cd sync issues
+        child.sendline(f'ls "{fixtures_dir}"')
 
-        # Execute ls and capture output
-        child.sendline('ls')
-        time.sleep(LS_OUTPUT_DELAY)
-
-        output = get_output(child)
-
-        # Verify expected files appear in output
-        expected_files = ['sample.txt', 'data.csv', 'binary.bin', 'subdir']
-        found = [f for f in expected_files if f in output]
-
-        if len(found) >= 3:
-            print(f"  PASS: Found {len(found)}/{len(expected_files)} expected files")
-            success = True
-        else:
-            # Output parsing is inherently fragile; don't fail on partial match
-            print(f"  WARN: Only found {len(found)}/{len(expected_files)} files: {found}")
-            success = True
-
-        cleanup_child(child)
-        return success
+        # Use expect to capture output - look for sample.txt
+        try:
+            child.expect('sample', timeout=COMMAND_TIMEOUT)
+            print("  PASS: Fixture files detected in ls output")
+            cleanup_child(child)
+            return True
+        except pexpect.TIMEOUT:
+            print("  FAIL: Could not find fixture files in ls output")
+            cleanup_child(child)
+            return False
 
     except Exception as e:
         print(f"  FAIL: Exception - {e}")
@@ -239,48 +219,36 @@ def test_ls_basic(binary, fixtures_dir):
 
 def test_ls_shows_directory_count(binary, fixtures_dir):
     """
-    Verify ls displays item count for directories.
+    Verify ls displays subdirectory in output.
 
-    Tests that DAIS's custom ls shows the number of items inside
-    subdirectories. The fixtures/subdir contains 3 files.
+    Tests that DAIS's custom ls correctly identifies and displays
+    subdirectories. The fixtures/subdir contains 3 nested files.
 
     Args:
         binary: Path to the DAIS binary.
         fixtures_dir: Path to the test fixtures directory.
 
     Returns:
-        bool: True if directory detected in output, False on hard failure.
+        bool: True if directory detected in output, False on failure.
     """
     print(f"[TEST] Directory item count (shell: {get_current_shell()})...")
 
     try:
-        child = spawn_dais(binary)
-        time.sleep(SHELL_INIT_DELAY)
+        child = spawn_dais_ready(binary)
 
-        child.sendline(f'cd {fixtures_dir}')
-        time.sleep(1)
+        # Use ls with explicit path
+        child.sendline(f'ls "{fixtures_dir}"')
 
-        child.sendline('ls')
-        time.sleep(LS_OUTPUT_DELAY)
-
+        # Look for subdir in output
         try:
             child.expect('subdir', timeout=COMMAND_TIMEOUT)
-            output = child.before + child.after
-
-            # Subdir has 3 files; check for count indicator
-            if '3' in output or 'subdir' in output:
-                print("  PASS: Directory detected in output")
-                success = True
-            else:
-                print("  WARN: Directory info unclear in output")
-                success = True
-
+            print("  PASS: Directory detected in ls output")
+            cleanup_child(child)
+            return True
         except pexpect.TIMEOUT:
-            print("  WARN: Could not find subdir in output")
-            success = True
-
-        cleanup_child(child)
-        return success
+            print("  FAIL: Could not find subdir in ls output")
+            cleanup_child(child)
+            return False
 
     except Exception as e:
         print(f"  FAIL: Exception - {e}")
@@ -292,35 +260,34 @@ def test_ls_with_path(binary, fixtures_dir):
     Verify ls accepts an explicit path argument.
 
     Tests that `ls /path/to/dir` syntax works correctly without needing
-    to cd into the directory first.
+    to cd into the directory first. This is the primary method used
+    by all ls tests to avoid CWD synchronization issues.
 
     Args:
         binary: Path to the DAIS binary.
         fixtures_dir: Path to the test fixtures directory.
 
     Returns:
-        bool: True if output was produced, False on hard failure.
+        bool: True if output was produced, False on failure.
     """
     print(f"[TEST] ls with path argument (shell: {get_current_shell()})...")
 
     try:
-        child = spawn_dais(binary)
-        time.sleep(SHELL_INIT_DELAY)
+        child = spawn_dais_ready(binary)
 
-        child.sendline(f'ls {fixtures_dir}')
-        time.sleep(LS_OUTPUT_DELAY)
+        # Run ls with explicit path
+        child.sendline(f'ls "{fixtures_dir}"')
 
-        output = child.before if child.before else ""
-
-        if len(output) > 10:
-            print("  PASS: ls with path produced output")
-            success = True
-        else:
-            print("  WARN: ls with path output was short")
-            success = True
-
-        cleanup_child(child)
-        return success
+        # Look for any fixture file to confirm output
+        try:
+            child.expect('data', timeout=COMMAND_TIMEOUT)  # data.csv
+            print("  PASS: ls with path produced valid output")
+            cleanup_child(child)
+            return True
+        except pexpect.TIMEOUT:
+            print("  FAIL: ls with path did not show expected files")
+            cleanup_child(child)
+            return False
 
     except Exception as e:
         print(f"  FAIL: Exception - {e}")
