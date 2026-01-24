@@ -411,6 +411,99 @@ def test_special_filenames():
         shutil.rmtree(temp_dir, ignore_errors=True)
 
 
+def test_ls_flow_control():
+    """
+    Test LS horizontal vs vertical flow control.
+
+    Verifies that :ls h and :ls v commands correctly change the grid layout order.
+    Horizontal: Row-major (fill row 1, then row 2)
+    Vertical: Column-major (fill col 1, then col 2)
+
+    Returns:
+        bool: True if vertical vs horizontal flow logic is verified, False otherwise.
+    """
+    print("[TEST] LS Flow Control...")
+
+    binary = find_binary()
+    if not binary:
+        print("  SKIP: Binary not found")
+        return None
+
+    fixtures_dir = None
+    candidates = [
+        './tests/fixtures',
+        '../fixtures',
+        os.path.join(os.path.dirname(__file__), '..', 'fixtures'),
+    ]
+    for path in candidates:
+        if os.path.exists(path):
+            fixtures_dir = os.path.abspath(path)
+            break
+    if not fixtures_dir:
+        print("  SKIP: Fixtures not found")
+        return None
+
+    cmd = spawn_dais(binary)
+    if not cmd:
+        return False
+
+    print(f"Testing LS flow control in '{fixtures_dir}'...")
+
+    try:
+        # 1. Test Horizontal (Default/Explicit)
+        # :ls h -> Horizontal flow
+        cmd.sendline(":ls h")
+        cmd.expect("ls:.*?flow=h", timeout=COMMAND_TIMEOUT)
+
+        # Run ls on fixtures
+        cmd.sendline(f'ls {fixtures_dir}')
+        
+        # Verify content exists
+        cmd.expect("data.csv", timeout=COMMAND_TIMEOUT)
+        cmd.expect("sample.txt", timeout=COMMAND_TIMEOUT)
+        
+        # 2. Test Vertical
+        # :ls v -> Vertical flow
+        cmd.sendline(":ls v")
+        cmd.expect("ls:.*?flow=v", timeout=COMMAND_TIMEOUT)
+
+        cmd.sendline(f'ls {fixtures_dir}')
+        output = ""
+        # Capture enough output to see the grid
+        try:
+            cmd.expect("binary.bin", timeout=COMMAND_TIMEOUT)
+            output = cmd.before + cmd.after
+        except pexpect.TIMEOUT:
+            # Fallback if expectation fails
+            output = cmd.buffer
+
+        # Check relative positions
+        pos_data = output.find("data.csv")
+        pos_sample = output.find("sample.txt")
+        
+        if pos_data == -1 or pos_sample == -1:
+             print("FAIL: Could not find files in vertical output")
+             return False
+
+        if pos_sample < pos_data:
+             print("PASS: Vertical flow verified (sample.txt < data.csv)")
+        else:
+             print(f"FAIL: Vertical flow check failed. Expected sample.txt < data.csv. Indices: sample={pos_sample}, data={pos_data}")
+             return False
+
+        # Reset defaults
+        cmd.sendline(":ls d")
+        cmd.expect("ls:.*?defaults", timeout=COMMAND_TIMEOUT)
+
+        return True
+
+    except Exception as e:
+        print(f"FAIL: Exception: {e}")
+        return False
+    finally:
+        cleanup_child(cmd)
+
+
 # =============================================================================
 # Main Entry Point
 # =============================================================================
@@ -456,6 +549,9 @@ def main():
 
     # Special filenames
     results.append(('special_files', test_special_filenames()))
+    
+    # LS Flow Control
+    results.append(('ls_flow', test_ls_flow_control()))
 
     # Summary
     print()
