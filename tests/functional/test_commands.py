@@ -450,17 +450,21 @@ def test_ls_flow_control():
     print(f"Testing LS flow control in '{fixtures_dir}'...")
 
     try:
+        # Define prompt regex (root # or user $)
+        prompt_re = r"[\#\$] "
+
         # 1. Test Horizontal (Default/Explicit)
         # :ls h -> Horizontal flow
         cmd.sendline(":ls h")
         cmd.expect("ls:.*?flow=h", timeout=COMMAND_TIMEOUT)
+        # Consume the prompt triggered by the internal command
+        cmd.expect(prompt_re, timeout=COMMAND_TIMEOUT)
 
         # Run ls on fixtures
         cmd.sendline(f'ls {fixtures_dir}')
         
-        # Wait for prompt relative to previous command
-        # Match generic shell prompts (# for root, $ for user)
-        cmd.expect(r"[\#\$] ", timeout=COMMAND_TIMEOUT)
+        # Wait for prompt relative to 'ls' command
+        cmd.expect(prompt_re, timeout=COMMAND_TIMEOUT)
         output_h = cmd.before
         
         if "data.csv" not in output_h or "sample.txt" not in output_h:
@@ -472,11 +476,13 @@ def test_ls_flow_control():
         # :ls v -> Vertical flow
         cmd.sendline(":ls v")
         cmd.expect("ls:.*?flow=v", timeout=COMMAND_TIMEOUT)
+        # Consume prompt
+        cmd.expect(prompt_re, timeout=COMMAND_TIMEOUT)
 
         cmd.sendline(f'ls {fixtures_dir}')
         
-        # Capture full output by waiting for prompt
-        cmd.expect(r"[\#\$] ", timeout=COMMAND_TIMEOUT)
+        # Capture full output
+        cmd.expect(prompt_re, timeout=COMMAND_TIMEOUT)
         output_v = cmd.before
 
         # Check relative positions
