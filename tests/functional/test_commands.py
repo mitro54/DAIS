@@ -449,55 +449,55 @@ def test_ls_flow_control():
 
     print(f"Testing LS flow control in '{fixtures_dir}'...")
 
-        # 1. Test Horizontal (Default/Explicit)
-        # :ls h -> Horizontal flow
-        cmd.sendline(":ls h")
-        cmd.expect("ls:.*?flow=h", timeout=COMMAND_TIMEOUT)
+    # 1. Test Horizontal (Default/Explicit)
+    # :ls h -> Horizontal flow
+    cmd.sendline(":ls h")
+    cmd.expect("ls:.*?flow=h", timeout=COMMAND_TIMEOUT)
 
-        # Run ls on fixtures
-        cmd.sendline(f'ls {fixtures_dir}')
-        
-        # Wait for prompt relative to previous command
-        cmd.expect(r"DAIS runner\$ ", timeout=COMMAND_TIMEOUT)
-        output_h = cmd.before
-        
-        if "data.csv" not in output_h or "sample.txt" not in output_h:
-            print("FAIL: Files missing in horizontal output")
-            print(f"DEBUG Output: {output_h}")
+    # Run ls on fixtures
+    cmd.sendline(f'ls {fixtures_dir}')
+    
+    # Wait for prompt relative to previous command
+    cmd.expect(r"DAIS runner\$ ", timeout=COMMAND_TIMEOUT)
+    output_h = cmd.before
+    
+    if "data.csv" not in output_h or "sample.txt" not in output_h:
+        print("FAIL: Files missing in horizontal output")
+        print(f"DEBUG Output: {output_h}")
+        return False
+
+    # 2. Test Vertical
+    # :ls v -> Vertical flow
+    cmd.sendline(":ls v")
+    cmd.expect("ls:.*?flow=v", timeout=COMMAND_TIMEOUT)
+
+    cmd.sendline(f'ls {fixtures_dir}')
+    
+    # Capture full output by waiting for prompt
+    cmd.expect(r"DAIS runner\$ ", timeout=COMMAND_TIMEOUT)
+    output_v = cmd.before
+
+    # Check relative positions
+    pos_data = output_v.find("data.csv")
+    pos_sample = output_v.find("sample.txt")
+    
+    if pos_data == -1 or pos_sample == -1:
+            print("FAIL: Could not find files in vertical output")
+            print(f"DEBUG Output: {output_v}")
             return False
 
-        # 2. Test Vertical
-        # :ls v -> Vertical flow
-        cmd.sendline(":ls v")
-        cmd.expect("ls:.*?flow=v", timeout=COMMAND_TIMEOUT)
+    if pos_sample < pos_data:
+            print("PASS: Vertical flow verified (sample.txt < data.csv)")
+    else:
+            print(f"FAIL: Vertical flow check failed. Expected sample.txt < data.csv. Indices: sample={pos_sample}, data={pos_data}")
+            print(f"DEBUG Output:\n{output_v}")
+            return False
 
-        cmd.sendline(f'ls {fixtures_dir}')
-        
-        # Capture full output by waiting for prompt
-        cmd.expect(r"DAIS runner\$ ", timeout=COMMAND_TIMEOUT)
-        output_v = cmd.before
+    # Reset defaults
+    cmd.sendline(":ls d")
+    cmd.expect("ls:.*?defaults", timeout=COMMAND_TIMEOUT)
 
-        # Check relative positions
-        pos_data = output_v.find("data.csv")
-        pos_sample = output_v.find("sample.txt")
-        
-        if pos_data == -1 or pos_sample == -1:
-             print("FAIL: Could not find files in vertical output")
-             print(f"DEBUG Output: {output_v}")
-             return False
-
-        if pos_sample < pos_data:
-             print("PASS: Vertical flow verified (sample.txt < data.csv)")
-        else:
-             print(f"FAIL: Vertical flow check failed. Expected sample.txt < data.csv. Indices: sample={pos_sample}, data={pos_data}")
-             print(f"DEBUG Output:\n{output_v}")
-             return False
-
-        # Reset defaults
-        cmd.sendline(":ls d")
-        cmd.expect("ls:.*?defaults", timeout=COMMAND_TIMEOUT)
-
-        return True
+    return True
 
     finally:
         cleanup_child(cmd)
