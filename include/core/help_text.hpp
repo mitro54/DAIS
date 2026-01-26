@@ -52,6 +52,14 @@ namespace dais::core {
         h += S + "    Flow:    " + V + "h (horizontal), v (vertical)" + R + "\r\n";
         h += "\r\n";
         
+        // DB Commands
+        h += U + "Database Querying" + R + "\r\n";
+        h += S + "  " + V + ":db <SQL>" + S + "        " + T + "Run SQL query (limit 1000)" + R + "\r\n";
+        h += S + "  " + V + ":db <Alias>" + S + "      " + T + "Run saved query from config.py" + R + "\r\n";
+        h += S + "  " + V + "--json/--csv" + S + "     " + T + "Export flags" + R + "\r\n";
+        h += S + "  " + V + "--output <f>" + S + "     " + T + "Save to file" + R + "\r\n";
+        h += "\r\n";
+        
         // History & System
         h += U + "History & System" + R + "\r\n";
         h += S + "  " + V + ":history" + S + "         " + T + "Show last 20 commands" + R + "\r\n";

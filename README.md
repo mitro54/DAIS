@@ -33,6 +33,7 @@ Beyond the visuals, DAIS is built for performance and extensibility.
 
 - **Zero-Latency PTY**: Seamless shell wrapping with native C++ performance.
 - **Python Plugin System**: Extend functionality using standard Python scripts
+- **Database Querying**: SQLite and DuckDB (if python package is installed)
 - **Smart `ls` Command**:
     - **Adaptive Performance**: Uses parallel processing for near instant analysis of large directories
     - **Data-Aware**: Automatically detects CSV/TSV/JSON files and displays column counts
@@ -67,6 +68,35 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
 | `:ls v` | Use vertical flow (column-by-column) |
 | `:ls false` | Disable "directories first" grouping |
 | `:ls d` | Reset to defaults |
+ 
+
+#### Database Querying (`:db`)
+Execute SQL queries directly from the terminal without leaving your shell. Supports **SQLite** natively and **DuckDB** (if python package is installed).
+
+**Syntax:**
+`:db <SQL Query> [flags]` or `:db <Saved Query Alias>`
+
+**Flags:**
+These flags can be placed anywhere in the command:
+- `--json`: Export output as JSON
+- `--csv`: Export output as CSV 
+- `--output <file>`: Save result directly to file (bypasses terminal)
+- `--no-limit`: Remove the default 1000-row Safety Limit
+
+**Examples:**
+```bash
+# Basic query (Table View)
+:db SELECT * FROM users
+
+# Export to JSON
+:db SELECT * FROM logs WHERE level='ERROR' --json
+
+# Save large report to CSV
+:db SELECT * FROM transactions --csv --output report.csv
+
+# Run a saved shortcut (defined in config.py)
+:db heavy_report
+```
 
 #### History & System
 | Command | Description |
