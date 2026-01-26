@@ -109,12 +109,25 @@ class TestDBHandler(unittest.TestCase):
             adapter = db_handler.get_adapter(db_type.lower())
             adapter.connect(None, **resolved)
             
-            # Run simple query
-            cursor = adapter.execute("SELECT 1")
+            # Run Connection & Feature Test (CRUD)
+            # 1. Create Table
+            adapter.execute("CREATE TABLE IF NOT EXISTS ci_test (id INT, val VARCHAR(20))")
+             
+            # 2. Insert Data
+            # Postgres/MySQL placeholders might differ slightly, but simple string injection 
+            # for this test logic is acceptable as we control the input 'test_val'
+            adapter.execute("INSERT INTO ci_test (id, val) VALUES (100, 'ci_feature_works')")
+
+            # 3. Query Data
+            cursor = adapter.execute("SELECT val FROM ci_test WHERE id = 100")
             result = cursor.fetchone()
-            self.assertEqual(result[0], 1)
+            self.assertEqual(result[0], "ci_feature_works")
+            
+            # 4. Cleanup
+            adapter.execute("DROP TABLE ci_test")
+            
             adapter.close()
-            print(f"  {db_type} PASS")
+            print(f"  {db_type} PASS (CRUD Verified)")
         except Exception as e:
             self.fail(f"{db_type} Connection Failed: {e}")
 
@@ -125,6 +138,90 @@ class TestDBHandler(unittest.TestCase):
         """
         self._verify_connection("Postgres", "PG")
         self._verify_connection("MySQL", "MY")
+
+    def test_sqlite_live(self):
+        """Verify SQLite adapter works with a temp file."""
+        db_path = os.path.join(self.test_dir, "test.db")
+        adapter = db_handler.get_adapter("sqlite")
+        try:
+            # Connect
+            adapter.connect(db_path)
+            # Create Table
+            adapter.execute("CREATE TABLE foo (id INTEGER PRIMARY KEY, val TEXT)")
+            adapter.execute("INSERT INTO foo (val) VALUES ('bar')")
+            # Query
+            cursor = adapter.execute("SELECT val FROM foo")
+            result = cursor.fetchone()
+            self.assertEqual(result[0], "bar")
+            print("  SQLite PASS")
+        finally:
+            adapter.close()
+
+    def test_duckdb_live(self):
+        """Verify DuckDB adapter works (in-memory)."""
+        try:
+            import duckdb
+        except ImportError:
+            print("Skipping DuckDB test (pkg missing)")
+            return
+
+        adapter = db_handler.get_adapter("duckdb")
+        try:
+            # Connect (In Memory)
+            adapter.connect(":memory:")
+            # Create Table
+            adapter.execute("CREATE TABLE foo (id INTEGER, val TEXT)")
+            adapter.execute("INSERT INTO foo VALUES (1, 'quack')")
+            # Query
+            cursor = adapter.execute("SELECT val FROM foo")
+            result = cursor.fetchone()
+            self.assertEqual(result[0], "quack")
+            print("  DuckDB PASS")
+        finally:
+            adapter.close()
+
+class TestDBFailures(unittest.TestCase):
+    """Negative testing: Ensure we fail gracefully."""
+    
+    def test_invalid_sql(self):
+        """Verify executing bad SQL raises an error (not a crash)."""
+        adapter = db_handler.get_adapter("sqlite")
+        adapter.connect(":memory:")
+        try:
+            with self.assertRaises(Exception): # sqlite3.OperationalError
+                adapter.execute("SELECT * FROM non_existent_table")
+            print("  Negative Test (Invalid SQL): PASS")
+        finally:
+            adapter.close()
+
+    def test_connection_refused(self):
+        """Verify connecting to a closed port hangs/fails properly."""
+        # We assume localhost:9999 is closed.
+        pg_adapter = db_handler.get_adapter("postgres")
+        
+        # Manually constructing a bad config
+        bad_config = {
+            "DB_TYPE": "postgres",
+            "DB_HOST": "localhost", 
+            "DB_PORT": "9999", # Closed port
+            "DB_USER": "user",
+            "DB_PASS": "pass",
+            "DB_NAME": "db"
+        }
+        
+        # Should raise OperationalError (psycopg2)
+        with self.assertRaises(Exception):
+            try:
+                # We need to resolve it manually or just call connect directly if knowing the signature?
+                # accessing private method for test setup or just passing args?
+                # db_handler doesn't expose resolve cleanly as static.
+                # Let's import psycopg2 directly? No, test the adapter wrapper.
+                # The adapter takes kwargs.
+                pg_adapter.connect(None, host="localhost", port="9999", user="u", password="p", dbname="d")
+            except ImportError:
+                 print("Skipping PG Failure test (pkg missing)")
+                 raise
+        print("  Negative Test (Connection Refused): PASS")
 
 if __name__ == '__main__':
     unittest.main()

@@ -151,7 +151,7 @@ class PostgresAdapter(DBAdapter):
         if "DB_NAME" in kwargs: connect_args["dbname"] = kwargs["DB_NAME"]
         
         # Fallback: if 'source' looks like a DSN "postgresql://...", use it
-        if "://" in source:
+        if source and "://" in source:
              self.conn = psycopg2.connect(source)
         else:
              self.conn = psycopg2.connect(**connect_args)
