@@ -192,13 +192,13 @@ python3 tests/functional/test_commands.py
 Runs the full suite against real **Postgres** and **MySQL** instances using Docker.
 ```bash
 # Requires Docker
-bash bash_scripts/test_local.sh
+bash shell_scripts/test_local.sh
 ```
 
 **3. Coverage Report:**
 Generate HTML coverage reports for Python extensions.
 ```bash
-bash bash_scripts/generate_coverage.sh
+bash shell_scripts/generate_coverage.sh
 ```
 
 ### CI Pipeline

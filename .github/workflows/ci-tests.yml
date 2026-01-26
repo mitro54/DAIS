@@ -237,8 +237,8 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          chmod +x bash_scripts/generate_coverage.sh
-          ./bash_scripts/generate_coverage.sh build
+          chmod +x shell_scripts/generate_coverage.sh
+          ./shell_scripts/generate_coverage.sh build
 
       - name: Upload coverage report
         uses: actions/upload-artifact@v4
