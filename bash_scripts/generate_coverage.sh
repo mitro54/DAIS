@@ -10,7 +10,7 @@
 #   - lcov must be installed
 #
 # Usage:
-#   ./scripts/generate_coverage.sh
+#   ./bash_scripts/generate_coverage.sh
 #
 # Output:
 #   coverage/           - HTML report directory
