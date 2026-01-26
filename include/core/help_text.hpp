@@ -54,10 +54,11 @@ namespace dais::core {
         
         // DB Commands
         h += U + "Database Querying" + R + "\r\n";
-        h += S + "  " + V + ":db <SQL>" + S + "        " + T + "Run SQL query (limit 1000)" + R + "\r\n";
+        h += S + "  " + V + ":db <SQL>" + S + "        " + T + "Run SQL (PG, MySQL, SQLite, DuckDB)" + R + "\r\n";
         h += S + "  " + V + ":db <Alias>" + S + "      " + T + "Run saved query from config.py" + R + "\r\n";
         h += S + "  " + V + "--json/--csv" + S + "     " + T + "Export flags" + R + "\r\n";
         h += S + "  " + V + "--output <f>" + S + "     " + T + "Save to file" + R + "\r\n";
+        h += S + "  " + V + "--no-limit" + S + "       " + T + "Disable 1000-row limit" + R + "\r\n";
         h += "\r\n";
         
         // History & System

@@ -71,7 +71,7 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
  
 
 #### Database Querying (`:db`)
-Execute SQL queries directly from the terminal without leaving your shell. Supports **SQLite** natively and **DuckDB** (if python package is installed).
+Execute SQL queries directly from the terminal without leaving your shell. Supports **Postgres**, **MySQL**, **SQLite** natively and **DuckDB** (if python package is installed).
 
 **Syntax:**
 `:db <SQL Query> [flags]` or `:db <Saved Query Alias>`
