@@ -242,10 +242,10 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
 
     clean_query = query.strip()
     
-    # 2. Safety Limit
+    # 2. Safety Limit (Only for SELECT)
     if not flags["json"] and not flags["csv"] and not flags["no_limit"]:
         low_query = clean_query.lower()
-        if "limit" not in low_query:
+        if low_query.startswith("select") and "limit" not in low_query:
             clean_query += " LIMIT 1000"
 
     # 3. Execution

@@ -223,6 +223,30 @@ class TestDBFailures(unittest.TestCase):
                  raise
         print("  Negative Test (Connection Refused): PASS")
 
+    def test_auto_limit_logic(self):
+        """Verify LIMIT 1000 is applied ONLY to SELECT statements."""
+        # 1. SELECT without limit -> gets limit
+        q1 = "SELECT * FROM t"
+        # We need to test the logic in run_query. Since run_query is a function that 
+        # calls get_adapter, we can mock get_adapter to intercept the query.
+        
+        with patch("db_handler.get_adapter") as mock_get:
+            mock_adapter = MagicMock()
+            mock_get.return_value = mock_adapter
+            
+            # Case A: SELECT
+            db_handler.run_query("select * from t", "sqlite", ":memory:")
+            # Verify execute was called with limit
+            args, _ = mock_adapter.execute.call_args
+            self.assertTrue("LIMIT 1000" in args[0])
+
+            # Case B: INSERT
+            db_handler.run_query("INSERT INTO t VALUES(1)", "sqlite", ":memory:")
+            args, _ = mock_adapter.execute.call_args
+            self.assertFalse("LIMIT 1000" in args[0])
+            
+        print("  Auto-Limit Logic: PASS")
+
 if __name__ == '__main__':
     unittest.main()
 
