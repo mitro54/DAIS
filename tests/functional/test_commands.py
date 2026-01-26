@@ -575,11 +575,16 @@ def test_db_autoinstall():
         
         # Expect the pip install command to be echoed/run
         try:
-            # Look for the command injection
-            child.expect("pip install dais-test-pkg", timeout=COMMAND_TIMEOUT + 5)
-            print("  PASS: pip install command triggered")
+            # Look for the command injection with a flexible regex to handle PTY fragmentation/echo issues
+            child.expect(r"pip install.*dais-test-pkg", timeout=COMMAND_TIMEOUT + 5)
+            
+            # Strong verification: Wait for the pip error message to confirm it actually EXECUTED
+            # Since 'dais-test-pkg' is fake, this is the most reliable "success" signal.
+            child.expect(r"(Could not find a version|No matching distribution found)", timeout=COMMAND_TIMEOUT + 10)
+            
+            print("  PASS: pip install command triggered and executed")
         except pexpect.TIMEOUT:
-            print("  FAIL: pip command not triggered")
+            print("  FAIL: pip command execution not detected")
             # Log output for debugging
             print(f"DEBUG After Y: {child.before}")
             return False
