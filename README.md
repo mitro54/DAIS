@@ -33,7 +33,11 @@ Beyond the visuals, DAIS is built for performance and extensibility.
 
 - **Zero-Latency PTY**: Seamless shell wrapping with native C++ performance.
 - **Python Plugin System**: Extend functionality using standard Python scripts
-- **Database Querying**: SQLite and DuckDB (if python package is installed)
+- **Advanced Database Querying**: 
+    - **Multi-Engine**: Supports **Postgres**, **MySQL**, **SQLite**, and **DuckDB**.
+    - **Zero-Config**: Recursive `.env` discovery & System Environment fallback.
+    - **Auto-Install**: Interactive `(y/N)` prompt to install missing database packages via pip.
+    - **Persistence**: Full DDL/DML support (Autocommit enabled) for table creation and updates.
 - **Smart `ls` Command**:
     - **Adaptive Performance**: Uses parallel processing for near instant analysis of large directories
     - **Data-Aware**: Automatically detects CSV/TSV/JSON files and displays column counts
@@ -45,6 +49,7 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
     - **Shell Support**: Tested on **Bash**, **Ash**, **Zsh**, and **Fish**
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
+    - **Robust CI**: Verified functional cross-platform (Ubuntu, macOS, Fedora).
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
 
 ### Runtime Commands
@@ -71,7 +76,11 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
  
 
 #### Database Querying (`:db`)
-Execute SQL queries directly from the terminal without leaving your shell. Supports **Postgres**, **MySQL**, **SQLite** natively and **DuckDB** (if python package is installed).
+Execute SQL queries directly from the terminal. DAIS auto-detects credentials from your project root.
+
+**Supported Engines:**
+- **Postgres** & **MySQL** (Requires `.env` or system env vars)
+- **SQLite** & **DuckDB** (File-based or in-memory)
 
 **Syntax:**
 `:db <SQL Query> [flags]` or `:db <Saved Query Alias>`
@@ -88,14 +97,14 @@ These flags can be placed anywhere in the command:
 # Basic query (Table View)
 :db SELECT * FROM users
 
+# Run Update/Create (Persisted via Autocommit)
+:db CREATE TABLE test (id INT, val TEXT)
+
 # Export to JSON
 :db SELECT * FROM logs WHERE level='ERROR' --json
 
 # Save large report to CSV
 :db SELECT * FROM transactions --csv --output report.csv
-
-# Run a saved shortcut (defined in config.py)
-:db heavy_report
 ```
 
 #### History & System
@@ -167,28 +176,35 @@ Choose your operating system:
 
 ## Testing
 
-DAIS includes automated tests for multiple platforms. Tests run automatically via GitHub Actions on push/PR.
+DAIS includes automated tests for both core logic and interactive CLI flows.
 
 ### Run Tests Locally
 
-**Build verification:**
+**1. Basic Functionality:**
+Verifies build integrity and core commands (requires `pexpect`).
 ```bash
 ./tests/test_build.sh
-```
-
-**Functional tests (requires pexpect):**
-```bash
 pip install pexpect
 python3 tests/functional/test_commands.py
 ```
 
-### Docker Tests
-
-Test DAIS on specific distributions:
+**2. Full Database CI Simulation (Recommended):**
+Runs the full suite against real **Postgres** and **MySQL** instances using Docker.
 ```bash
-# Build and test on Ubuntu
-docker build -f tests/docker/ubuntu-24.04.Dockerfile -t dais-test .
-docker run --rm dais-test ./tests/test_build.sh
+# Requires Docker
+bash scripts/test_local.sh
 ```
+
+**3. Coverage Report:**
+Generate HTML coverage reports for Python extensions.
+```bash
+bash scripts/generate_coverage.sh
+```
+
+### CI Pipeline
+DAIS uses GitHub Actions for cross-platform verification:
+- **Matrix**: Ubuntu, macOS, Fedora, Debian, Alpine, Arch.
+- **Service Containers**: Automated Postgres 15/MySQL 8 testing.
+- **Strict Mode**: Enforces 100% database adapter presence in CI.
 
 Available Dockerfiles: `ubuntu-24.04`, `debian-13`, `fedora-40`, `arch`, `alpine-3.20`
