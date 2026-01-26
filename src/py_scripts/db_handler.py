@@ -413,7 +413,7 @@ def _resolve_connection_config(env_vars: Dict[str, str], config: Optional[Any] =
     resolved_config: Dict[str, str] = {}
 
     # Default Mappings (Can be overridden in config.py)
-    mappings = getattr(config, "DB_KEY_MAPPING", {
+    default_mappings = {
         "DB_TYPE": ["DB_TYPE", "DB_T", "DATABASE_TYPE", "ENGINE"],
         "DB_SOURCE": ["DB_SOURCE", "DB_FILE", "SQLITE_DB", "DB_S"],
         "DB_HOST": ["DB_HOST", "DB_H", "POSTGRES_HOST", "MYSQL_HOST"],
@@ -421,7 +421,14 @@ def _resolve_connection_config(env_vars: Dict[str, str], config: Optional[Any] =
         "DB_USER": ["DB_USER", "DB_U", "POSTGRES_USER", "MYSQL_USER"],
         "DB_PASS": ["DB_PASS", "DB_PASSWORD", "POSTGRES_PASSWORD", "MYSQL_PASSWORD", "MYSQL_PWD"],
         "DB_NAME": ["DB_NAME", "DB_N", "POSTGRES_DB", "MYSQL_DATABASE"]
-    })
+    }
+    
+    mappings = None
+    if config:
+        mappings = getattr(config, "DB_KEY_MAPPING", None)
+    
+    if mappings is None:
+        mappings = default_mappings
 
     def get_config_val(key: str) -> Optional[Any]:
         return getattr(config, key, None) if config else None
