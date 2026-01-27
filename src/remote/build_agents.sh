@@ -47,7 +47,16 @@ if [ "$goto_generate" != "true" ]; then
     # 2. Host Build (x86_64 usually)
     if command -v g++ >/dev/null 2>&1; then
         echo "  [x86_64] Compiling..."
-        g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_x86_64"
+        
+        # MacOS (Darwin) does not support -static easily (crt0.o missing)
+        # Linux usually supports it if glibc-static is installed
+        STATIC_FLAG="-static"
+        if [ "$(uname)" = "Darwin" ]; then
+            echo "    [Notice] MacOS detected: Disabling -static linking"
+            STATIC_FLAG=""
+        fi
+
+        g++ -std=c++20 $STATIC_FLAG -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_x86_64"
     else
         echo "  [x86_64] g++ not found! Skipping."
     fi

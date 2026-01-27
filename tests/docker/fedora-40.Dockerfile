@@ -11,6 +11,8 @@ RUN dnf install -y \
     git \
     zsh \
     fish \
+    glibc-static \
+    libstdc++-static \
     && dnf clean all
 
 WORKDIR /app
