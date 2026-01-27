@@ -47,7 +47,7 @@ if [ "$goto_generate" != "true" ]; then
     # 2. Host Build (x86_64 usually)
     if command -v g++ >/dev/null 2>&1; then
         echo "  [x86_64] Compiling..."
-        g++ -std=c++20 -static -O3 "$SRC_FILE" -o "$OUT_DIR/agent_x86_64"
+        g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_x86_64"
     else
         echo "  [x86_64] g++ not found! Skipping."
     fi
@@ -55,7 +55,7 @@ if [ "$goto_generate" != "true" ]; then
     # 3. AArch64 (ARM64)
     if command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
         echo "  [aarch64] Compiling..."
-        aarch64-linux-gnu-g++ -std=c++20 -static -O3 "$SRC_FILE" -o "$OUT_DIR/agent_aarch64"
+        aarch64-linux-gnu-g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_aarch64"
     else
         echo "  [aarch64] Cross-compiler not found. Skipping."
     fi
@@ -63,7 +63,7 @@ if [ "$goto_generate" != "true" ]; then
     # 4. ARMv7 (RPi 3/4 32-bit)
     if command -v arm-linux-gnueabihf-g++ >/dev/null 2>&1; then
         echo "  [armv7l] Compiling..."
-        arm-linux-gnueabihf-g++ -std=c++20 -static -O3 "$SRC_FILE" -o "$OUT_DIR/agent_armv7"
+        arm-linux-gnueabihf-g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_armv7"
     else
         echo "  [armv7l] Cross-compiler not found. Skipping."
     fi
