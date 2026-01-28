@@ -40,6 +40,22 @@ FetchContent_MakeAvailable(pybind11)
 # Relaxed version requirement slightly to ensure compatibility if you update Python later
 find_package(Python 3.8 COMPONENTS Interpreter Development REQUIRED)
 
+# =============================================================================
+# Build Agents (Remote Execution Binaries)
+# =============================================================================
+# Run the shell script to compile agents and generate the header.
+# We interpret it with 'bash' assuming it's available in PATH (WSL/Linux/Git Bash).
+add_custom_command(
+    OUTPUT ${CMAKE_SOURCE_DIR}/include/core/dais_agents.hpp
+    COMMAND bash ${CMAKE_SOURCE_DIR}/src/remote/build_agents.sh
+    WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    COMMENT "Building remote agents and generating header..."
+    VERBATIM
+)
+
+# Create a target so the executable can depend on it
+add_custom_target(BuildAgents DEPENDS ${CMAKE_SOURCE_DIR}/include/core/dais_agents.hpp)
+
 # THE INGREDIENTS (List every .cpp file you create here)
 add_executable(DAIS 
     src/main.cpp
@@ -47,6 +63,8 @@ add_executable(DAIS
     src/core/session.cpp
     # If you add a new file, just add a new line here
 )
+add_dependencies(DAIS BuildAgents)
+
 
 # Tells CMake where to find your header files (.hpp)
 target_include_directories(DAIS PRIVATE include)

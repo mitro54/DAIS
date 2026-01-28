@@ -98,7 +98,7 @@ class SqliteAdapter(DBAdapter):
         self.cursor = None
 
     def connect(self, source, **kwargs):
-        self.conn = sqlite3.connect(source)
+        self.conn = sqlite3.connect(source, isolation_level=None)
         self.cursor = self.conn.cursor()
 
     def execute(self, query):
@@ -242,14 +242,18 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
     else:
         flags["output"] = None
 
-    def pop_flag(q, flag):
-        if flag in q:
-            return q.replace(flag, ""), True
+    # Parse boolean flags using regex to ensure they are whole words
+    def pop_bool_flag(q, flag):
+        pattern = r'\s+' + re.escape(flag) + r'(\s+|$)'
+        match = re.search(pattern, q)
+        if match:
+            # Replace with space to avoid joining bits
+            return q[:match.start()] + " " + q[match.end():], True
         return q, False
 
-    query, flags["json"] = pop_flag(query, "--json")
-    query, flags["csv"] = pop_flag(query, "--csv")
-    query, flags["no_limit"] = pop_flag(query, "--no-limit")
+    query, flags["json"] = pop_bool_flag(query, "--json")
+    query, flags["csv"] = pop_bool_flag(query, "--csv")
+    query, flags["no_limit"] = pop_bool_flag(query, "--no-limit")
 
     clean_query = query.strip()
     
@@ -257,7 +261,12 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
     if not flags["json"] and not flags["csv"] and not flags["no_limit"]:
         low_query = clean_query.lower()
         if low_query.startswith("select") and "limit" not in low_query:
-            clean_query += " LIMIT 1000"
+            # Don't append if it ends with a hanging clause (user likely still typing/editing)
+            hanging = ["where", "by", "and", "or", "in", "set", "from"]
+            words = clean_query.split()
+            last_word = words[-1].lower() if words else ""
+            if last_word not in hanging:
+                clean_query += " LIMIT 1000"
 
     # 3. Execution
     adapter = None
@@ -269,64 +278,104 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
         # Extract headers
         headers = [d[0] for d in cursor.description] if cursor.description else []
 
-        # Generator for Streaming
-        def row_generator():
-            while True:
-                # fetchmany is standard DB-API 2.0
-                batch = cursor.fetchmany(1000)
-                if not batch:
-                    break
-                for row in batch:
-                    yield row
-
+        # Consolidate results for small queries to avoid temp files
+        all_rows = []
+        if flags["json"] or flags["csv"] or cursor.description:
+            # For JSON/CSV without output, or for the Table view, we need the rows.
+            # We'll fetch up to 1001 to see if it's "large"
+            all_rows = cursor.fetchmany(1001)
+            is_large = len(all_rows) > 1000
+        
         # --- EXPORT ACTIONS ---
         if flags["json"]:
             if flags.get("output"):
-                target_path = flags["output"]
-                action = "print"
-                pager = None
-                message = f"Saved JSON to: {target_path}"
+                target_path = os.path.expanduser(flags["output"])
+                # Permission Check
+                dir_name = os.path.dirname(os.path.abspath(target_path))
+                if not os.access(dir_name, os.W_OK):
+                    return json.dumps({
+                        "status": "error", 
+                        "message": f"Permission denied: Cannot write to '{dir_name}'. Try using a path in /tmp/ or your home directory."
+                    })
+                
+                with open(target_path, 'w', encoding='utf-8') as f:
+                    f.write("[\n")
+                    # Write already fetched rows
+                    for i, row in enumerate(all_rows):
+                        if i > 0: f.write(",\n")
+                        f.write(json.dumps(dict(zip(headers, row)), default=str))
+                    # Write remaining if any
+                    first = len(all_rows) == 0
+                    while True:
+                        batch = cursor.fetchmany(1000)
+                        if not batch: break
+                        for row in batch:
+                            if not first: f.write(",\n")
+                            f.write(json.dumps(dict(zip(headers, row)), default=str))
+                            first = False
+                    f.write("\n]")
+                adapter.close()
+                return json.dumps({"status": "success", "action": "print", "data": f"Saved JSON to: {target_path}"})
             else:
-                fd, target_path = tempfile.mkstemp(prefix="dais_db_", suffix=".json", text=True)
-                os.close(fd)
-                action = "page"
-                pager = "cat"
-                message = target_path
-
-            with open(target_path, 'w', encoding='utf-8') as f:
-                f.write("[\n")
-                first = True
-                for row in row_generator():
-                    if not first: f.write(",\n")
-                    item = dict(zip(headers, row))
-                    f.write(json.dumps(item, default=str))
-                    first = False
-                f.write("\n]")
-            
-            adapter.close()
-            return json.dumps({"status": "success", "action": action, "data": message, "pager": pager})
+                if is_large:
+                    fd, target_path = tempfile.mkstemp(prefix="dais_db_", suffix=".json", text=True)
+                    os.close(fd)
+                    with open(target_path, 'w', encoding='utf-8') as f:
+                        f.write("[\n")
+                        for i, row in enumerate(all_rows):
+                            if i > 0: f.write(",\n")
+                            f.write(json.dumps(dict(zip(headers, row)), default=str))
+                        while True:
+                            batch = cursor.fetchmany(1000)
+                            if not batch: break
+                            for row in batch:
+                                f.write(",\n")
+                                f.write(json.dumps(dict(zip(headers, row)), default=str))
+                        f.write("\n]")
+                    adapter.close()
+                    return json.dumps({"status": "success", "action": "page", "data": target_path, "pager": "cat"})
+                else:
+                    # Small result: print directly
+                    data = [dict(zip(headers, r)) for r in all_rows]
+                    adapter.close()
+                    return json.dumps({"status": "success", "action": "print", "data": json.dumps(data, default=str, indent=2)})
 
         if flags["csv"]:
+            import io, csv
             if flags.get("output"):
-                target_path = flags["output"]
-                action = "print"
-                pager = None
-                message = f"Saved CSV to: {target_path}"
+                target_path = os.path.expanduser(flags["output"])
+                with open(target_path, 'w', encoding='utf-8', newline='') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(headers)
+                    writer.writerows(all_rows)
+                    while True:
+                        batch = cursor.fetchmany(1000)
+                        if not batch: break
+                        writer.writerows(batch)
+                adapter.close()
+                return json.dumps({"status": "success", "action": "print", "data": f"Saved CSV to: {target_path}"})
             else:
-                fd, target_path = tempfile.mkstemp(prefix="dais_db_", suffix=".csv", text=True)
-                os.close(fd)
-                action = "page"
-                pager = "cat"
-                message = target_path
-
-            with open(target_path, 'w', encoding='utf-8', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(headers)
-                for row in row_generator():
-                    writer.writerow(row)
-            
-            adapter.close()
-            return json.dumps({"status": "success", "action": action, "data": message, "pager": pager})
+                if is_large:
+                    fd, target_path = tempfile.mkstemp(prefix="dais_db_", suffix=".csv", text=True)
+                    os.close(fd)
+                    with open(target_path, 'w', encoding='utf-8', newline='') as f:
+                        writer = csv.writer(f)
+                        writer.writerow(headers)
+                        writer.writerows(all_rows)
+                        while True:
+                            batch = cursor.fetchmany(1000)
+                            if not batch: break
+                            writer.writerows(batch)
+                    adapter.close()
+                    return json.dumps({"status": "success", "action": "page", "data": target_path, "pager": "cat"})
+                else:
+                    # Small result: print directly
+                    output = io.StringIO()
+                    writer = csv.writer(output)
+                    writer.writerow(headers)
+                    writer.writerows(all_rows)
+                    adapter.close()
+                    return json.dumps({"status": "success", "action": "print", "data": output.getvalue()})
 
         # --- VIEW ACTION ---
         # If cursor.description is None, this was a DDL/DML statement (INSERT, UPDATE, CREATE)
@@ -335,11 +384,29 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
             adapter.close()
             return json.dumps({"status": "success", "action": "print", "data": "Command executed successfully."})
 
-        rows = cursor.fetchall()
+        # Use already fetched rows plus any remaining
+        rows = all_rows
+        if is_large:
+            if flags["no_limit"]:
+                # User wants ALL rows - fetch the rest
+                while True:
+                    batch = cursor.fetchmany(1000)
+                    if not batch:
+                        break
+                    rows.extend(batch)
+            # else: We already fetched 1001, just use those for the preview
         adapter.close()
 
+        # Calculate widths
+        widths = [len(h) for h in headers]
         if not rows:
-            return json.dumps({"status": "success", "action": "print", "data": "No results."})
+            if not headers:
+                return json.dumps({"status": "success", "action": "print", "data": "Command executed (no results)."})
+            
+            # Show headers even if no data
+            head = " | ".join(f"{h:<{len(h)}}" for h in headers)
+            sep = "-+-".join("-" * len(h) for h in headers)
+            return json.dumps({"status": "success", "action": "print", "data": f"{head}\n{sep}\n(0 rows returned)"})
 
         # Calculate widths
         widths = [len(h) for h in headers]
@@ -366,6 +433,7 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
             fd, path = tempfile.mkstemp(prefix="dais_db_", suffix=".txt", text=True)
             with os.fdopen(fd, 'w', encoding='utf-8') as f:
                 f.write(full_output)
+                f.write("\n")  # Ensure prompt appears on new line after output
             user_pager = os.environ.get("PAGER", "less -S")
             return json.dumps({"status": "success", "action": "page", "data": path, "pager": user_pager})
         else:
@@ -509,7 +577,17 @@ def handle_command(cmd_input, cwd):
 
         # Set defaults if still missing
         db_type = resolved_config.get("DB_TYPE", "sqlite")
-        db_source = resolved_config.get("DB_SOURCE", ":memory:")
+        
+        # Priority for default SQlite source:
+        # 1. ~/.dais/dais.db (Created if missing)
+        # 2. current directory .dais.db
+        # 3. :memory: (absolute fallback)
+        default_source = os.path.expanduser("~/.dais/dais.db")
+        if not os.path.exists(os.path.dirname(default_source)):
+            try: os.makedirs(os.path.dirname(default_source), exist_ok=True)
+            except: default_source = ".dais.db"
+            
+        db_source = resolved_config.get("DB_SOURCE", default_source)
         
         # Extra args for adapters (host/user/pass)
         adapter_kwargs = {}
@@ -528,3 +606,15 @@ def handle_command(cmd_input, cwd):
 
     except Exception as e:
          return json.dumps({"status": "error", "message": f"Unexpected Handler Error: {str(e)}"})
+
+# =============================================================================
+# CLI ENTRY POINT (For SSH usage)
+# =============================================================================
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print(json.dumps({"status": "error", "message": "Usage: python3 db_handler.py <query>"}))
+        sys.exit(1)
+        
+    query = sys.argv[1]
+    cwd = os.getcwd() # In SSH, we run in the user's directory directly
+    print(handle_command(query, cwd))

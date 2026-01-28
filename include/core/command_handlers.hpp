@@ -22,6 +22,7 @@
 #include <cctype>
 #include <future> // std::async and std::future
 #include <unordered_map>
+#include <regex> 
 
 namespace dais::core::handlers {
 
@@ -571,6 +572,168 @@ namespace dais::core::handlers {
             output += "\r\n";
         }
         
+        return output;
+    }
+
+    /**
+     * @brief Renders the remote LS JSON output into the standard grid format.
+     * Uses regex to parse the JSON (since it's a simple flat structure) to avoid JSON deps.
+     */
+    inline std::string render_remote_ls(
+        const std::string& json_output,
+        const LSFormats& formats,
+        const LSSortConfig& sort_cfg,
+        int padding
+    ) {
+        // GridItem structure 
+        struct GridItem {
+            std::string name;
+            dais::utils::FileStats stats;
+            std::string display_string;
+            size_t visible_len = 0;
+        };
+        std::vector<GridItem> grid_items;
+
+        // Simple Regex for: {"name":"foo","is_dir":true,"size":123,...}
+        // This is fragile but suffices for our strictly controlled agent output.
+        // Group 1: name, 2: is_dir, 3: size, 4: rows, 5: cols, 6: count, 7: text, 8: data, 9: est
+        std::regex re(R"(\"name\":\"(.*?)\",\"is_dir\":(true|false),\"size\":(\d+),\"rows\":(\d+),\"cols\":(\d+),\"count\":(\d+),\"is_text\":(true|false),\"is_data\":(true|false),\"is_estimated\":(true|false))");
+        
+        auto begin = std::sregex_iterator(json_output.begin(), json_output.end(), re);
+        auto end = std::sregex_iterator();
+
+        for (std::sregex_iterator i = begin; i != end; ++i) {
+            std::smatch match = *i;
+            GridItem item;
+            item.name = match[1].str();
+            
+            // Unescape name (basic backslash handling)
+            // Note: In a full impl we'd handle \uXXXX, here we trust the agent to be mostly sane
+            // or just assume UTF8 pass-through.
+            
+            item.stats.is_dir = (match[2].str() == "true");
+            item.stats.size_bytes = std::stoull(match[3].str());
+            item.stats.rows = std::stoull(match[4].str());
+            item.stats.max_cols = std::stoull(match[5].str());
+            item.stats.item_count = std::stoull(match[6].str());
+            item.stats.is_text = (match[7].str() == "true");
+            item.stats.is_data = (match[8].str() == "true");
+            item.stats.is_estimated = (match[9].str() == "true");
+            
+            grid_items.push_back(item);
+        }
+
+        if (grid_items.empty()) return "";
+
+        // --- SORTING (Copy-Paste from native_ls, can be refactored) ---
+        auto get_type_priority = [](const GridItem& item) -> int {
+            if (item.stats.is_dir) return 0;
+            if (item.stats.is_text || item.stats.is_data) return 1;
+            return 2; // binary
+        };
+        
+        std::sort(grid_items.begin(), grid_items.end(), 
+            [&](const GridItem& a, const GridItem& b) {
+                if (sort_cfg.dirs_first) {
+                    if (a.stats.is_dir != b.stats.is_dir) {
+                        return a.stats.is_dir > b.stats.is_dir;
+                    }
+                }
+                
+                int cmp = 0;
+                if (sort_cfg.by == "name") {
+                    cmp = a.name.compare(b.name);
+                } else if (sort_cfg.by == "size") {
+                    cmp = (a.stats.size_bytes < b.stats.size_bytes) ? -1 : (a.stats.size_bytes > b.stats.size_bytes ? 1 : 0);
+                } else if (sort_cfg.by == "type") {
+                    cmp = get_type_priority(a) - get_type_priority(b);
+                    if (cmp == 0) cmp = a.name.compare(b.name);
+                } else if (sort_cfg.by == "rows") {
+                    cmp = (a.stats.rows < b.stats.rows) ? -1 : (a.stats.rows > b.stats.rows ? 1 : 0);
+                }
+                
+                return (sort_cfg.order == "desc") ? (cmp > 0) : (cmp < 0);
+            }
+        );
+
+        // --- FORMAT ---
+        for (auto& item : grid_items) {
+            std::unordered_map<std::string, std::string> vars;
+            vars["name"] = item.name;
+            vars["size"] = fmt_size(item.stats.size_bytes);
+            vars["rows"] = fmt_rows(item.stats.rows, item.stats.is_estimated);
+            vars["cols"] = std::to_string(item.stats.max_cols);
+            vars["count"] = std::to_string(item.stats.item_count);
+            
+            std::string tmpl;
+            if (item.stats.is_dir) {
+                tmpl = formats.directory;
+            } else if (item.stats.is_text) {
+                tmpl = formats.text_file;
+            } else if (item.stats.is_data) {
+                tmpl = formats.data_file;
+            } else {
+                tmpl = formats.binary_file;
+            }
+            
+            item.display_string = apply_template(tmpl, vars);
+            item.visible_len = get_visible_length(item.display_string);
+        }
+
+        // --- LAYOUT ---
+        // (Simplified copy of native_ls layout logic)
+        int term_width = get_terminal_width();
+        size_t max_len = 0;
+        for (const auto& item : grid_items) max_len = std::max(max_len, item.visible_len);
+        
+        size_t safety_margin = 12;
+        size_t safe_term_width = (static_cast<size_t>(term_width) > safety_margin) ? static_cast<size_t>(term_width) : 80;
+        size_t max_possible_padding = 1;
+        if (safe_term_width > (max_len + safety_margin)) {
+            max_possible_padding = safe_term_width - max_len - safety_margin;
+        }
+
+        // Use user-configured padding
+        int effective_padding = padding; 
+        effective_padding = std::min(effective_padding, static_cast<int>(max_possible_padding));
+        
+        size_t col_width = max_len + effective_padding;
+        size_t cell_width = col_width + 3;
+        size_t num_cols = std::max(1ul, (safe_term_width - 4) / cell_width);
+        
+        std::string output;
+        size_t total_items = grid_items.size();
+        size_t num_rows = (total_items + num_cols - 1) / num_cols;
+        
+        // Helper lambda to render a single cell
+        auto render_cell = [&](size_t item_idx) -> std::string {
+            std::string cell;
+            if (item_idx < grid_items.size()) {
+                const auto& item = grid_items[item_idx];
+                cell += item.display_string;
+                size_t pad = (item.visible_len < col_width) ? (col_width - item.visible_len) : 1;
+                cell += std::string(pad, ' ');
+            } else {
+                cell += std::string(col_width, ' ');
+            }
+            return cell;
+        };
+
+        for (size_t row = 0; row < num_rows; ++row) {
+            output += Theme::STRUCTURE + "| " + Theme::RESET;
+            for (size_t col = 0; col < num_cols; ++col) {
+                size_t item_idx;
+                if (sort_cfg.flow == "v") item_idx = col * num_rows + row;
+                else item_idx = row * num_cols + col;
+                
+                if (item_idx < total_items) {
+                    output += render_cell(item_idx);
+                    output += Theme::STRUCTURE + "|" + Theme::RESET;
+                    if (col < num_cols - 1 && (row * num_cols + col + 1) < total_items) output += " ";
+                }
+            }
+            output += "\r\n";
+        }
         return output;
     }
 }

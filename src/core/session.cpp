@@ -16,9 +16,16 @@
 
 // Platform-specific headers for PTY management
 #if defined(__APPLE__) || defined(__FreeBSD__)
-#include <util.h>
+    #include <util.h>
+    #if defined(__APPLE__)
+        #include <libproc.h>
+    #endif
+#elif defined(__linux__)
+    #include <pty.h>
+    #include <filesystem>
+    #include <fstream>
 #else
-#include <pty.h>
+    #include <pty.h>
 #endif
 
 namespace dais::core {
@@ -147,5 +154,33 @@ namespace dais::core {
      */
     void PTYSession::restore_term_mode() {
         tcsetattr(STDIN_FILENO, TCSANOW, &orig_term_);
+    }
+
+    std::string PTYSession::get_foreground_process_name() {
+        pid_t fg_pgrp = tcgetpgrp(master_fd_);
+        if (fg_pgrp < 0) return "";
+
+        // In most shells, the PGID of the foreground job is the PID of the leader process
+        pid_t target_pid = fg_pgrp;
+
+#if defined(__APPLE__)
+        struct proc_bsdinfo proc;
+        if (proc_pidinfo(target_pid, PROC_PIDTBSDINFO, 0, &proc, sizeof(proc)) > 0) {
+             return std::string(proc.pbi_name);
+        }
+#elif defined(__linux__)
+        try {
+             std::string path = "/proc/" + std::to_string(target_pid) + "/comm";
+             std::ifstream pid_file(path);
+             if (pid_file.is_open()) {
+                 std::string name;
+                 std::getline(pid_file, name);
+                 // Trim newline
+                 if (!name.empty() && name.back() == '\n') name.pop_back();
+                 return name;
+             }
+        } catch (...) {}
+#endif
+        return "";
     }
 }

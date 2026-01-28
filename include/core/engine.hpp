@@ -2,7 +2,9 @@
 #include "core/session.hpp"
 #include "core/command_handlers.hpp"
 #include "core/thread_pool.hpp"
+#include "core/dais_agents.hpp"
 #include <pybind11/embed.h>
+#include <condition_variable>
 #include <atomic>
 #include <string_view>
 #include <string>
@@ -72,10 +74,40 @@ namespace dais::core {
 
     class Engine {
     public:
+        // --- CONSTANTS ---
+        static constexpr char kCtrlU = '\x15';     ///< Clear Line
+        static constexpr char kCtrlC = '\x03';     ///< Interrupt
+        static constexpr char kCtrlA = '\x01';     ///< Start of Line
+        static constexpr char kCtrlK = '\x0b';     ///< Kill to End of Line
+        static constexpr char kBell  = '\x07';     ///< Bell / Sentinel Marker
+        static constexpr char kEsc   = '\x1b';     ///< Escape Character
+
+        /**
+         * @brief Constructs the DAIS Engine, detecting the shell environment.
+         */
         Engine();
+
+        /**
+         * @brief Destructor. Ensures the child PTY process is terminated gracefully.
+         */
         ~Engine();
+
+        /**
+         * @brief Main execution loop.
+         * Blocks until the session ends (user types :q or shell exits).
+         */
         void run();
+
+        /**
+         * @brief Scans a directory for Python scripts and loads them as modules.
+         * @param path Absolute or relative path to the scripts folder.
+         */
         void load_extensions(const std::string& path);
+
+        /**
+         * @brief Loads runtime configuration from a config.py file.
+         * @param path Absolute path to config.py.
+         */
         void load_configuration(const std::string& path);
         
         // Helper to allow main.cpp to resize window
@@ -99,12 +131,38 @@ namespace dais::core {
         
         // Active command being intercepted (protected by state_mutex_)
         std::string current_command_;
+
+        /**
+         * @brief Background thread: Reads PTY master -> Writes to Local Stdout.
+         * Handles ANSI parsing, state synchronization, and output capture.
+         */
+        void forward_shell_output();
+
+        /**
+         * @brief Main thread: Reads Local Stdin -> Writes to PTY master.
+         * Handles user input, command interception (ls, :db), history navigation,
+         * and tab completion recovery.
+         */
+        void process_user_input();
         
+        /**
+         * @brief Recovers the user's typed command from the raw shell output buffer.
+         * 
+         * Simulates a robust terminal (handling ANSI color codes, cursor movements, and line clearing)
+         * to reconstruct exactly what is visible on the screen.
+         * Crucial for intercepting commands from shell history where input is echoed by the shell.
+         * 
+         * @param raw_buffer The raw PTY output buffer containing prompts, echoes, and control codes.
+         * @return std::string The cleaned, reconstructed command string.
+         */
+        std::string recover_cmd_from_buffer(const std::string& raw_buffer);
+
         // --- THREAD SAFETY ---
         std::mutex state_mutex_;
 
         // --- PASS-THROUGH MODE STATE (only accessed from forward_shell_output thread) ---
-        std::string prompt_buffer_;            ///< Last ~100 chars for prompt detection
+        mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
+        std::string prompt_buffer_;            ///< Last ~1024 chars for prompt/command detection
         int pass_through_esc_state_ = 0;       ///< ANSI escape sequence state machine (0=normal)
         
         // Singleton thread pool for parallel file analysis (used by ls handler)
@@ -116,11 +174,7 @@ namespace dais::core {
         py::scoped_interpreter guard{}; 
         std::vector<py::module_> loaded_plugins_;
 
-        // The background thread that reads from Bash -> Screen
-        void forward_shell_output();
 
-        // The main loop that reads User Keyboard -> Bash
-        void process_user_input();
 
         void trigger_python_hook(const std::string& hook_name, const std::string& data);
 
@@ -161,6 +215,7 @@ namespace dais::core {
         bool history_navigated_ = false;            ///< True if arrow navigation was used
         bool tab_used_ = false;                      ///< True if Tab was used (accumulator unreliable)
         bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
+        std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
         
         void load_history();                        ///< Load from file on startup
@@ -173,5 +228,52 @@ namespace dais::core {
          * Bridges C++ engine with Python db_handler.
          */
         void handle_db_command(const std::string& query);
+        
+        // =====================================================================
+        // REMOTE SESSION STATE (SSH)
+        // =====================================================================
+        bool is_remote_session_ = false;       ///< True if foreground is ssh/scp
+        bool remote_agent_deployed_ = false;   ///< True if we successfully injected the agent
+        std::string remote_arch_ = "";         ///< Detected remote architecture (uname -m)
+        std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks
+
+        void check_remote_session();           ///< Updates is_remote_session_ based on FG process
+        void deploy_remote_agent();            ///< Injects binary if missing
+
+        // =====================================================================
+        // OUTPUT CAPTURING (For Remote Commands)
+        // =====================================================================
+        // Allows the main thread to capture PTY output temporarily.
+        std::atomic<bool> capture_mode_ = false;
+        std::string capture_buffer_;
+        std::mutex capture_mutex_;
+        std::condition_variable capture_cv_;
+        
+        /**
+         * @brief Executes a command on the remote shell and captures output.
+         * Blocks until the end sentinel is found or timeout.
+         */
+        std::string execute_remote_command(const std::string& cmd, int timeout_ms = 2000);
+        
+        /**
+         * @brief Handles the complex logic of intercepting and executing 'ls' on a remote host.
+         * Incorporates agent deployment, fallback to Python, and output rendering.
+         */
+        void handle_remote_ls(const handlers::LSArgs& ls_args, const std::string& original_cmd);
+        
+        bool remote_db_deployed_ = false;       ///< True if db_handler.py is on remote
+        void deploy_remote_db_handler();       ///< Injects python script if missing
+        
+        // =====================================================================
+        // LESS PAGER AVAILABILITY (For Remote Sessions)
+        // =====================================================================
+        bool less_checked_ = false;             ///< True if we've checked for less
+        bool less_available_ = true;            ///< True if less is available (default optimistic)
+        
+        /**
+         * @brief Checks if 'less' is available on remote and offers to install if not.
+         * @return True if less is available (or was installed), false to use cat fallback.
+         */
+        bool check_and_offer_less_install();
     };
 }

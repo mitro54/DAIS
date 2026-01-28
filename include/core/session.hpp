@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <cstdint>
+#include <string>
 
 namespace dais::core {
 
@@ -38,6 +39,12 @@ namespace dais::core {
             // getpgid(child_pid_) gets the shell's process group
             return fg_pgrp == getpgid(child_pid_);
         }
+
+        /**
+         * @brief Retrieves the name of the foreground process (e.g., "vim", "python3", "ssh").
+         * Useful for making engine decisions based on what the user is running.
+         */
+        std::string get_foreground_process_name();
 
     private:
         int master_fd_;
