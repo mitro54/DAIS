@@ -14,13 +14,13 @@ COPY include/core/file_analyzer.hpp /src/include/core/file_analyzer.hpp
 WORKDIR /build
 
 # 1. Build x86_64 (Standard Server)
-RUN g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_x86_64
+RUN g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_x86_64 && strip -s agent_x86_64
 
 # 2. Build aarch64 (Raspberry Pi 3/4/5, AWS Graviton)
-RUN aarch64-linux-gnu-g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_aarch64
+RUN aarch64-linux-gnu-g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_aarch64 && aarch64-linux-gnu-strip -s agent_aarch64
 
 # 3. Build armv7 (Older Raspberry Pi)
-RUN arm-linux-gnueabihf-g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_armv7
+RUN arm-linux-gnueabihf-g++ -static -O3 -std=c++20 -I/src/include /src/agent.cpp -o agent_armv7 && arm-linux-gnueabihf-strip -s agent_armv7
 
 # If you wanted to extract these, you would run this container and copy /build/*
 # Or use a script to convert them to C++ header (dais_agents.hpp)

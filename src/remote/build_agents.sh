@@ -57,6 +57,7 @@ if [ "$goto_generate" != "true" ]; then
         fi
 
         g++ -std=c++20 $STATIC_FLAG -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_x86_64"
+        strip -s "$OUT_DIR/agent_x86_64" 2>/dev/null || true
     else
         echo "  [x86_64] g++ not found! Skipping."
     fi
@@ -65,6 +66,7 @@ if [ "$goto_generate" != "true" ]; then
     if command -v aarch64-linux-gnu-g++ >/dev/null 2>&1; then
         echo "  [aarch64] Compiling..."
         aarch64-linux-gnu-g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_aarch64"
+        aarch64-linux-gnu-strip -s "$OUT_DIR/agent_aarch64" 2>/dev/null || true
     else
         echo "  [aarch64] Cross-compiler not found. Skipping."
     fi
@@ -73,6 +75,7 @@ if [ "$goto_generate" != "true" ]; then
     if command -v arm-linux-gnueabihf-g++ >/dev/null 2>&1; then
         echo "  [armv7l] Compiling..."
         arm-linux-gnueabihf-g++ -std=c++20 -static -O3 -I"$SCRIPT_DIR/../../include" "$SRC_FILE" -o "$OUT_DIR/agent_armv7"
+        arm-linux-gnueabihf-strip -s "$OUT_DIR/agent_armv7" 2>/dev/null || true
     else
         echo "  [armv7l] Cross-compiler not found. Skipping."
     fi

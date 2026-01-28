@@ -31,7 +31,7 @@ DAIS allows you to style your file listing exactly how you want it; from minimal
 ## Under the Hood: Features
 Beyond the visuals, DAIS is built for performance and extensibility.
 
-- **Zero-Latency PTY**: Seamless shell wrapping with native C++ performance.
+- **Near Zero-Latency PTY**: Seamless shell wrapping with native C++ performance.
 - **Python Plugin System**: Extend functionality using standard Python scripts
 - **Advanced Database Querying**: 
     - **Multi-Engine**: Supports **Postgres**, **MySQL**, **SQLite**, and **DuckDB**.
@@ -39,12 +39,16 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Auto-Install**: Interactive `(y/N)` prompt to install missing database packages via pip.
     - **Persistence**: Full DDL/DML support (Autocommit enabled) for table creation and updates.
 - **Smart `ls` Command**:
-    - **Adaptive Performance**: Uses parallel processing for near instant analysis of large directories
+    - **Adaptive Performance**: Uses parallel processing for accelerated analysis of large directories
     - **Data-Aware**: Automatically detects CSV/TSV/JSON files and displays column counts
     - **Text Insights**: Shows line counts and max line width for code/text files
     - **Configurable Sorting**: Sort output by name, size, type, or row count (`:ls size desc`)
+    - **Remote Acceleration**: transparently injects a lightweight static binary agent into SSH sessions for high-performance remote listing
     - **Fully Configurable**: Define your own output templates, icons, and colors, from config.py
     - **Flexible Usage**: Styling applies seamlessly to `ls -a` (hidden files) and `ls /absolute/path`
+- **Seamless SSH Integration**:
+    - **Remote History Sync**: Internal DAIS commands (`:db`, `:ls`) executed in SSH sessions are injected into the remote shell's history.
+    - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to a universal Python script if the specialized agent cannot run.
 - **Compatibility**:
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
     - **Shell Support**: Tested on **Bash**, **Ash**, **Zsh**, and **Fish**
@@ -121,6 +125,7 @@ DAIS maintains its own file-based history (~/.dais_history) separate from your s
 - **Smart Navigation**: Use UP/DOWN arrows at an empty prompt to navigate DAIS history.
 - **Original Commands**: Saves exactly what you typed (e.g., `ls`, including the projects own runtime : commands).
 - **Context Aware**: Arrow keys only navigate history when the shell is idle; they work normally inside apps like vim or nano.
+- **Remote Persistence**: When using SSH, DAIS injects its commands into the *remote* shell's history (using `history -s` or `print -s`), ensuring a unified experience across local and remote sessions.
 
 
 ## Scope
