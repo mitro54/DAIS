@@ -244,6 +244,8 @@ namespace dais::core {
         void check_remote_session();           ///< Updates is_remote_session_ based on FG process
         void deploy_remote_agent();            ///< Injects binary if missing
 
+        int remote_session_pid_ = -1;          ///< PID of the current SSH process (for sticky detection)
+
         // =====================================================================
         // OUTPUT CAPTURING (For Remote Commands)
         // =====================================================================
@@ -252,6 +254,11 @@ namespace dais::core {
         std::string capture_buffer_;
         std::mutex capture_mutex_;
         std::condition_variable capture_cv_;
+        
+        // --- AUTO-DEPLOYMENT STATE ---
+        std::atomic<bool> pending_remote_deployment_{false};
+        std::atomic<bool> ready_to_deploy_{false};
+        std::atomic<bool> in_alt_screen_{false};
         
         /**
          * @brief Executes a command on the remote shell and captures output.

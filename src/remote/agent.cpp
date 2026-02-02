@@ -33,6 +33,7 @@ class JsonWriter {
 public:
     explicit JsonWriter(std::ostream& out) noexcept : out_(out) {}
 
+    /** @brief Starts a JSON array ([) and manages the FSM stack. */
     void start_array() {
         prepare_value(); // Update Parent
         out_ << "[";
@@ -42,6 +43,7 @@ public:
     }
 
 
+    /** @brief Ends the current JSON array (]) and pops the stack. */
     void end_array() {
         if (!stack_.empty() && stack_.back().ctx != Context::Array) {
              std::cerr << "JSON ERROR: end_array called inside Object\n"; std::exit(1);
@@ -50,6 +52,7 @@ public:
         if (!stack_.empty()) stack_.pop_back();
     }
 
+    /** @brief Starts a JSON object ({) and manages the FSM stack. */
     void start_object() {
         prepare_value();
         out_ << "{";
@@ -57,6 +60,7 @@ public:
         stack_.push_back({Context::Object, false, true});
     }
 
+    /** @brief Ends the current JSON object (}) and pops the stack. */
     void end_object() {
         if (!stack_.empty() && stack_.back().ctx != Context::Object) {
              std::cerr << "JSON ERROR: end_object called inside Array\n"; std::exit(1);
@@ -65,6 +69,7 @@ public:
         if (!stack_.empty()) stack_.pop_back();
     }
 
+    /** @brief Writes a key string for an object field. */
     void key(std::string_view k) {
         if (stack_.empty() || stack_.back().ctx != Context::Object) {
             std::cerr << "JSON ERROR: key() called outside Object\n"; std::exit(1);
@@ -80,18 +85,21 @@ public:
         s.expecting_value = true;
     }
 
+    /** @brief Writes a string value and manages commas/FSM state. */
     void value(std::string_view v) {
         prepare_value();
         write_string(v);
         finish_value();
     }
 
+    /** @brief Writes a numeric value and manages commas/FSM state. */
     void value(long long v) {
         prepare_value();
         out_ << v;
         finish_value();
     }
 
+    /** @brief Writes a boolean value and manages commas/FSM state. */
     void value(bool v) {
         prepare_value();
         out_ << (v ? "true" : "false");
@@ -193,7 +201,8 @@ int main(int argc, char* argv[]) {
     // Nice value 10 (base 0) lowers priority significantly.
     // We explicitly cast to void to silence [[nodiscard]] or unused result warnings.
     // Failure to nice is not fatal, so we ignore the return value.
-    (void)nice(10);
+    auto dummy = nice(10);
+    (void)dummy;
 
     // Disable syncing for performance
     std::ios::sync_with_stdio(false);

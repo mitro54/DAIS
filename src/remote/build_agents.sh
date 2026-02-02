@@ -83,6 +83,6 @@ fi
 
 # 4. Generate Header
 echo "[DAIS] Generating Header ($HEADER_OUT)..."
-python3 "$SCRIPT_DIR/generate_header.py" "$OUT_DIR" "$HEADER_OUT"
+python3 "$SCRIPT_DIR/generate_header.py" "$OUT_DIR" "$HEADER_OUT" --permissive
 
 echo "[DAIS] Agent build complete."

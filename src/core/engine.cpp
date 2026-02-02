@@ -515,9 +515,15 @@ namespace dais::core {
                     if (buffer_str.size() >= prompt.size() &&
                         buffer_str.find(prompt) != std::string::npos) {
                         // Buffer contains a prompt - mark as IDLE
-                        // Also check that shell process is actually foreground
-                        if (pty_.is_shell_idle()) {
+                        // Logic update: in SSH, shell_state_ can be IDLE if we see a prompt
+                        // even if pty_.is_shell_idle() is false (since ssh is the listener).
+                        if (pty_.is_shell_idle() || is_remote_session_) {
                             shell_state_ = ShellState::IDLE;
+                            
+                            // If we were waiting for login to finish, we are now ready!
+                            if (is_remote_session_ && pending_remote_deployment_) {
+                                ready_to_deploy_ = true;
+                            }
                         }
                         break;
                     }
@@ -553,7 +559,7 @@ namespace dais::core {
                             pass_through_esc_state_ = 0;
                         } else if (c == kEsc) {
                             pass_through_esc_state_ = 1;
-                        } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && pty_.is_shell_idle()) {
+                        } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && (pty_.is_shell_idle() || is_remote_session_)) {
                             // Inject logo at line start when shell is idle
                             // Note: Don't skip spaces - they may be part of multi-line prompt formatting
                             if (c >= 33 && c < 127) {
@@ -565,7 +571,7 @@ namespace dais::core {
                     } else if (!is_complex_shell_) {
                         // Simple shells: inject immediately
                         if (at_line_start_) {
-                            if (c != '\n' && c != '\r' && config_.show_logo && shell_state_ == ShellState::IDLE && pty_.is_shell_idle()) {
+                            if (c != '\n' && c != '\r' && config_.show_logo && shell_state_ == ShellState::IDLE && (pty_.is_shell_idle() || is_remote_session_)) {
                                 std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
                                 write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
                                 at_line_start_ = false;
@@ -636,11 +642,23 @@ namespace dais::core {
         std::string cmd_accumulator;
 
         while (running_) {
-            int ret = poll(&pfd, 1, -1);
+            int ret = poll(&pfd, 1, 100);
 
             if (ret < 0) {
                 if (errno == EINTR) continue; // Signal interrupted, keep going
                 break;
+            }
+
+            if (ret == 0) {
+                // AUTO-DEPLOYMENT TRIGGER:
+                // If the output thread found a prompt while we have a pending deployment, execute it here.
+                if (ready_to_deploy_) {
+                     ready_to_deploy_ = false;
+                     pending_remote_deployment_ = false;
+                     deploy_remote_agent();
+                     deploy_remote_db_handler();
+                }
+                continue;
             }
 
             if (pfd.revents & POLLIN) {
@@ -927,6 +945,34 @@ namespace dais::core {
                                     p += 2;
                                 }
                                 std::string inject = "{ history -s \"" + escaped + "\" 2>/dev/null || print -s \"" + escaped + "\" 2>/dev/null; }";
+                                execute_remote_command(inject, 2000);
+
+                                intercept = true;
+                            }
+                            // Check for Agent Status command
+                            else if (clean == ":agent-status") {
+                                // Save to local history immediately
+                                save_history_entry(clean);
+                                history_index_ = command_history_.size();
+
+                                // CLEAR REMOTE LINE
+                                const char kill_line = kCtrlU; 
+                                write(pty_.get_master_fd(), &kill_line, 1);
+                                
+                                std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::NOTICE + "AGENT" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET;
+                                std::cout << "\r\n" << logo << " Status Report:\r\n";
+                                std::cout << "  Active: " << (is_remote_session_ ? "Yes (Remote)" : "No (Local)") << "\r\n";
+                                if (is_remote_session_) {
+                                    std::cout << "  Deployed: " << (remote_agent_deployed_ ? (handlers::Theme::SUCCESS + "YES (Binary)" + handlers::Theme::RESET) : (handlers::Theme::WARNING + "NO (Python Fallback)" + handlers::Theme::RESET)) << "\r\n";
+                                    std::cout << "  Arch: " << remote_arch_ << "\r\n";
+                                    if (remote_agent_deployed_) {
+                                        std::cout << "  Path: ~/.dais/bin/agent_" << remote_arch_ << "\r\n";
+                                    }
+                                }
+                                std::cout << std::flush;
+
+                                // Inject into remote history
+                                std::string inject = "{ history -s \":agent-status\" 2>/dev/null || print -s \":agent-status\" 2>/dev/null; }";
                                 execute_remote_command(inject, 2000);
 
                                 intercept = true;
@@ -1314,6 +1360,26 @@ namespace dais::core {
                                 write(pty_.get_master_fd(), "\n", 1);
                                 continue;
                             }
+
+                            // 7. Agent Status Command
+                            // :agent-status - Debug info about remote agent
+                            if (cmd_accumulator == ":agent-status") {
+                                std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::NOTICE + "AGENT" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET;
+                                std::cout << "\r\n" << logo << " Status Report:\r\n";
+                                std::cout << "  Active: " << (is_remote_session_ ? "Yes (Remote)" : "No (Local)") << "\r\n";
+                                if (is_remote_session_) {
+                                    std::cout << "  Deployed: " << (remote_agent_deployed_ ? (handlers::Theme::SUCCESS + "YES (Binary)" + handlers::Theme::RESET) : (handlers::Theme::WARNING + "NO (Python Fallback)" + handlers::Theme::RESET)) << "\r\n";
+                                    std::cout << "  Arch: " << remote_arch_ << "\r\n";
+                                    if (remote_agent_deployed_) {
+                                        std::cout << "  Path: ~/.dais/bin/agent_" << remote_arch_ << "\r\n";
+                                    }
+                                }
+                                std::cout << std::flush;
+                                
+                                cmd_accumulator.clear();
+                                write(pty_.get_master_fd(), "\n", 1);
+                                continue;
+                            }
                         }
 
                         // --- THROTTLED SESSION CHECK ---
@@ -1457,10 +1523,7 @@ namespace dais::core {
 
 
     // =========================================================================
-    // COMMAND HISTORY (File-Based)
-    // =========================================================================
-
-    // COMMAND HISTORY (File-Based)
+    // REMOTE COMMAND EXECUTION (Agent-Based)
     // =========================================================================
 
     void Engine::handle_remote_ls(const handlers::LSArgs& ls_args, const std::string& original_cmd) {
@@ -1500,7 +1563,7 @@ namespace dais::core {
         if (remote_agent_deployed_) {
             // A. Binary Agent (Preferred / Fast)
             // \x15 is now handled in execute_remote_command
-            std::string agent_cmd = "./.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_);
+            std::string agent_cmd = "~/.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_);
             agent_cmd += (ls_args.show_hidden ? " -a" : "");
             agent_cmd += paths_arg;
             
@@ -1833,24 +1896,51 @@ namespace dais::core {
 
     void Engine::check_remote_session() {
         std::string fg = pty_.get_foreground_process_name();
+        int fg_pid = pty_.get_foreground_process_pid();
         
         bool was = is_remote_session_;
         
         // Simple heuristic: if foreground process contains "ssh", assume remote.
-        // Note: This covers "ssh", "/usr/bin/ssh", etc.
-        is_remote_session_ = (fg.find("ssh") != std::string::npos);
-        
-        if (is_remote_session_ && !was) {
-             // New session detected - reset deployment state
-             remote_agent_deployed_ = false;
-             remote_db_deployed_ = false; // Reset DB handler too
-             remote_arch_ = "";
-             
-             // Trigger auto-deployment immediately if shell is idle
-             if (pty_.is_shell_idle()) {
-                 deploy_remote_agent();
-                 deploy_remote_db_handler();
-             }
+        bool detected_ssh = (fg.find("ssh") != std::string::npos);
+
+        if (detected_ssh) {
+            is_remote_session_ = true;
+            
+            // New Session Logic:
+            // If the PID changed, it's a completely new SSH connection.
+            // (Even if the user just exited one ssh and started another immediately)
+            if (fg_pid != remote_session_pid_) {
+                // RESET STATE
+                remote_agent_deployed_ = false;
+                remote_db_deployed_ = false;
+                remote_arch_ = "";
+                remote_session_pid_ = fg_pid;
+                
+                // Signal that we want to deploy as soon as we see the first prompt
+                pending_remote_deployment_ = true;
+                ready_to_deploy_ = false;
+            }
+        } else {
+            // Not detecting SSH currently.
+            // BUT: Don't flip is_remote_session_ to false immediately if the PID is still valid.
+            // PTY naming can sometimes flicker (e.g. to "bash" or "grep") during execution.
+            // However, get_foreground_process_pid() reflects the process group leader usually.
+            
+            // Safe Reset: Only verify we actually LEFT the session if the previous PID is gone
+            // or if the current foreground PID is explicitly DIFFERENT and NOT ssh.
+            
+            if (was) {
+               // We WERE in a session. Now we see 'fg' (e.g. "bash") and 'fg_pid'.
+               // If fg_pid is DIFFERENT than remote_session_pid_, then yes, the SSH process is gone.
+               if (fg_pid != remote_session_pid_) {
+                   is_remote_session_ = false;
+                   remote_session_pid_ = -1;
+               } 
+               // If fg_pid == remote_session_pid_, we assume it's just a transient state check 
+               // (maybe the SSH process is exec'ing something?) or just keep it true for stability.
+            } else {
+                is_remote_session_ = false;
+            }
         }
     }
 
@@ -1890,6 +1980,14 @@ namespace dais::core {
         bool finished = capture_cv_.wait_for(lock, std::chrono::milliseconds(timeout_ms), [&]{
             return capture_buffer_.find(sentinel) != std::string::npos;
         });
+
+        if (finished) {
+            // "Gobble" trailing prompt:
+            // On slow connections (ARM/QEMU), the shell prompt often arrives 10-50ms *after* the sentinel.
+            // If we stop capturing immediately, that prompt leaks to stdout (causing visual duplicates).
+            // We wait a brief moment to ensure we capture/consume the prompt too.
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
 
         // 4. Disable Capture
         capture_mode_ = false;
@@ -1975,7 +2073,9 @@ namespace dais::core {
         if (remote_agent_deployed_ || !is_remote_session_) return;
         
         // Only deploy when shell is idle to avoid corrupting user input/output
-        if (!pty_.is_shell_idle()) return;
+        // EXCEPTION: If is_remote_session_ is true, the "busy" process IS the SSH client, 
+        // which is exactly what we want to talk to.
+        if (!is_remote_session_ && !pty_.is_shell_idle()) return;
         
         // 1. Detect Architecture
         std::string out = execute_remote_command("uname -m", 5000);
@@ -2022,8 +2122,14 @@ namespace dais::core {
         std::string remote_hash_cmd = "sha256sum " + target_path + " 2>/dev/null | cut -d' ' -f1";
         std::string current_hash = execute_remote_command(remote_hash_cmd, 1000);
         
-        // Trim whitespace/newlines
-        current_hash.erase(current_hash.find_last_not_of(" \n\r\t") + 1);
+        // Trim whitespace/newlines (both ends to be safe)
+        const char* ws = " \t\n\r\x0b\x0c";
+        if (current_hash.find_first_not_of(ws) != std::string::npos) {
+            current_hash.erase(0, current_hash.find_first_not_of(ws));
+            current_hash.erase(current_hash.find_last_not_of(ws) + 1);
+        } else {
+            current_hash.clear(); // All whitespace
+        }
         
         if (!current_hash.empty() && current_hash == agent.hash) {
             // Hash matches! Now check version to be double sure (and handle upgrades if hash colliding?)
@@ -2038,7 +2144,7 @@ namespace dais::core {
                 remote_agent_deployed_ = true;
                 
                  if (config_.show_logo) {
-                    std::cout << "\r[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
+                    std::cout << "\r\n[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
                               << "] Agent verified (" << agent.hash.substr(0, 8) << "...).\r\n" << std::flush;
                 }
             }
@@ -2095,8 +2201,15 @@ namespace dais::core {
                 
                 if (current_hash != agent.hash) {
                      std::cout << "\r[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
-                              << "] Integrity Check Failed! Remote hash mismatch.\r\n" << std::flush;
+                              << "] Integrity Check Failed! Remote hash mismatch.\r\n"
+                              << "    Expected: " << agent.hash << "\r\n"
+                              << "    Actual:   [" << current_hash << "]\r\n" << std::flush;
                      remote_agent_deployed_ = false; // Mark invalid
+                } else {
+                     if (config_.show_logo) {
+                         std::cout << "\r\n[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
+                                   << "] Agent deployed (" << agent.hash.substr(0, 8) << "...).\r\n" << std::flush;
+                     }
                 }
 
             } else {
@@ -2311,13 +2424,8 @@ namespace dais::core {
                     escaped_query.replace(pos, 1, "\\\"");
                     pos += 2;
                 }
-                
-                
-                
-                
                 std::string remote_cmd = "python3 ~/.dais/bin/db_handler.py \"" + escaped_query + "\"";
                 json_result = execute_remote_command(remote_cmd, 10000); // 10s timeout for DB query
-                
             } else {
                 // --- LOCAL EXECUTION ---
                 // 1. Invoke Python Handler
