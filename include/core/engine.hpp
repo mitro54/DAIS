@@ -74,6 +74,10 @@ namespace dais::core {
 
     class Engine {
     public:
+        // --- Input Tracking for Paste/Fast Type ---
+        std::string input_accumulator_;
+        std::mutex input_mutex_;
+        
         // --- CONSTANTS ---
         static constexpr char kCtrlU = '\x15';     ///< Clear Line
         static constexpr char kCtrlC = '\x03';     ///< Interrupt

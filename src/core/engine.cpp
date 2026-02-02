@@ -842,8 +842,24 @@ namespace dais::core {
                             // - tab was used (shell has the expanded path, we don't)
                             // NOTE: Don't use is_remote_session_ here - prompt_buffer can be stale
                             std::string clean = cmd_accumulator;
+                            
+                            // FALLBACK: Use local input accumulator if recovered is empty/bad
+                            // This FIXES the "Copy Paste Race Condition" where echo hasn't arrived yet.
+                            std::string local_input;
+                            {
+                                std::lock_guard<std::mutex> lock(input_mutex_);
+                                local_input = input_accumulator_;
+                                // Reset after use
+                                input_accumulator_.clear(); 
+                            }
+
                             if (clean.empty() || clean.find('\t') != std::string::npos || tab_used_) {
-                                if (!recovered.empty()) clean = recovered;
+                                if (!recovered.empty()) {
+                                    clean = recovered;
+                                } else if (!local_input.empty() && local_input.find(':') != std::string::npos) {
+                                    // Trust local input if reliable (e.g. starts with :)
+                                    clean = local_input;
+                                }
                             }
 
                             // Trim leading/trailing whitespace
@@ -1566,46 +1582,67 @@ namespace dais::core {
         }
         
         // 5. Validation Check
-        size_t bracket = json_out.find('[');
-        bool valid_json = !json_out.empty() && bracket != std::string::npos;
-        
-        if (valid_json) {
-            json_out = json_out.substr(bracket);
+        bool valid_json = false;
+        if (!json_out.empty()) {
+            size_t bracket = json_out.find('[');
+            if (bracket != std::string::npos) {
+                try {
+                    // Pre-validate that it looks somewhat like JSON before passing to Python
+                    // This is a weak check, but saves a Python call
+                    json_out = json_out.substr(bracket);
+                    valid_json = true;
+                } catch (...) {
+                    valid_json = false;
+                }
+            }
         }
         
         // 6. Fallback Behavior
-        if (!remote_agent_deployed_ && !valid_json) {
-            // Restore original command to shell (Native LS)
-            // No error message, just let standard ls run
-            write(pty_.get_master_fd(), "ls\n", 3); // Simple restore
-            return; 
-        }
+        // ... handled below ...
         
         // 7. Render
         if (valid_json) {
-            handlers::LSFormats formats;
-            formats.directory = config_.ls_fmt_directory;
-            formats.text_file = config_.ls_fmt_text_file;
-            formats.data_file = config_.ls_fmt_data_file;
-            formats.binary_file = config_.ls_fmt_binary_file;
-            
-            handlers::LSSortConfig sort_cfg;
-            sort_cfg.by = config_.ls_sort_by;
-            sort_cfg.order = config_.ls_sort_order;
-            sort_cfg.dirs_first = config_.ls_dirs_first;
-            sort_cfg.flow = config_.ls_flow;
-            
-            std::string output = handlers::render_remote_ls(json_out, formats, sort_cfg, config_.ls_padding);
-            
-            if (!output.empty()) {
-                write(STDOUT_FILENO, "\r\n", 2);
-                write(STDOUT_FILENO, output.c_str(), output.size());
-            } 
-            // else: Valid JSON but empty content (empty dir or error caught in python). 
-            // Be silent like native ls.
-        } else {
+            try {
+                // Safely parse JSON via Python
+                handlers::LSFormats formats;
+                formats.directory = config_.ls_fmt_directory;
+                formats.text_file = config_.ls_fmt_text_file;
+                formats.data_file = config_.ls_fmt_data_file;
+                formats.binary_file = config_.ls_fmt_binary_file;
+                
+                handlers::LSSortConfig sort_cfg;
+                sort_cfg.by = config_.ls_sort_by;
+                sort_cfg.order = config_.ls_sort_order;
+                sort_cfg.dirs_first = config_.ls_dirs_first;
+                sort_cfg.flow = config_.ls_flow;
+                
+                // CRITICAL: This native function call eventually calls Python's json.loads
+                // We MUST guard this because agent output errors (e.g. SIGKILL truncating JSON)
+                // shouldn't crash the engine.
+                std::string output = handlers::render_remote_ls(json_out, formats, sort_cfg, config_.ls_padding);
+                
+                if (!output.empty()) {
+                    write(STDOUT_FILENO, "\r\n", 2);
+                    write(STDOUT_FILENO, output.c_str(), output.size());
+                } 
+            } catch (const std::exception& e) {
+                // If parsing fails, fall back to native LS warning
+                valid_json = false;
+            } catch (...) {
+                valid_json = false;
+            }
+        } 
+        
+        if (!valid_json || (!remote_agent_deployed_ && !valid_json)) {
+             // Logic consolidation:
+             // If deployment failed OR parsing failed, output error or fallback.
+             if (!remote_agent_deployed_) {
+                 write(pty_.get_master_fd(), "ls\n", 3);
+                 return;
+             }
+             
             std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::WARNING + "-" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + " ";
-            std::string err = "\r\n" + logo + "Remote execution timed out.\r\n";
+            std::string err = "\r\n" + logo + "Remote execution error (invalid output).\r\n";
             write(STDOUT_FILENO, err.c_str(), err.size());
         }
 
@@ -1669,6 +1706,12 @@ namespace dais::core {
                     // Clear Line
                     clean_line.clear();
                     cursor = 0;
+                }
+                else if (c == '\n') {
+                    // Handle Line Feed (Wrapping)
+                    // If we saw \r (cursor=0) then \n, we should probably append 
+                    // rather than overwriting from index 0.
+                    cursor = clean_line.size();
                 }
                 else if (c >= 32) { // Printable (allow spaces)
                     if (cursor < clean_line.size()) {
@@ -1965,68 +2008,104 @@ namespace dais::core {
              return; 
         }
 
-        // 3. Inject Binary (Silent Streaming Upload)
-        // 1. Disable Echo (stty -echo) to prevent 1.5MB of base64 from spamming the user's terminal
-        // 2. Stream Heredoc
-        // 3. Re-enable Echo (stty echo)
-        
+        std::string target_path = "~/.dais/bin/agent_" + remote_arch_;
         std::string b64 = base64_encode(agent.data, agent.size);
-        std::string temp_b64 = ".dais/bin/agent_" + remote_arch_ + ".b64";
-        std::string target_path = ".dais/bin/agent_" + remote_arch_;
-        
-        // Ensure directory exists
-        execute_remote_command("mkdir -p .dais/bin", 2000);
-        execute_remote_command("rm -f " + temp_b64, 2000); 
+        std::string temp_b64 = target_path + ".b64";
 
-        // Disable Echo
-        execute_remote_command("stty -echo", 2000);
-
-        // Start Heredoc - use single quotes 'DAIS_EOF' to prevent shell expansion
-        std::string start_heredoc = "cat > " + temp_b64 + " << 'DAIS_EOF'\n";
-        write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
+        // --- VERIFICATION STRATEGY ---
+        // 1. Check if agent already exists and has correct Hash + Version
+        // This avoids expensive re-deployments on every connection.
+        bool need_deploy = true;
         
-        // Stream Data
-        constexpr size_t PAYLOAD_CHUNK = 4096;
-        size_t sent = 0;
+        // Try getting remote hash (sha256sum is standard on most Linuxes)
+        // Output format: "hash  filename" -> we just want the first word
+        std::string remote_hash_cmd = "sha256sum " + target_path + " 2>/dev/null | cut -d' ' -f1";
+        std::string current_hash = execute_remote_command(remote_hash_cmd, 1000);
         
-        while (sent < b64.size()) {
-            size_t n = std::min(PAYLOAD_CHUNK, b64.size() - sent);
-            write(pty_.get_master_fd(), b64.data() + sent, n);
-            sent += n;
-            // Tiny sleep to prevent kernel/remote buffer overflow on fast local systems
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
+        // Trim whitespace/newlines
+        current_hash.erase(current_hash.find_last_not_of(" \n\r\t") + 1);
         
-        // End Heredoc - ensure it's on a clean new line
-        std::string end_heredoc = "\nDAIS_EOF\n";
-        write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
-        
-        // Wait a moment for shell to finalize the file write
-        std::this_thread::sleep_for(std::chrono::milliseconds(300));
-
-        // Re-enable Echo
-        execute_remote_command("stty echo", 2000);
-
-        // Decode and Finalize
-        std::string deploy_cmd = 
-            "base64 -d " + temp_b64 + " > " + target_path + " && "
-            "chmod +x " + target_path + " && "
-            "rm " + temp_b64 + " && "
-            "echo DAIS_DEPLOY_OK";
-
-        std::string result = execute_remote_command(deploy_cmd, 10000);
-        
-        if (result.find("DAIS_DEPLOY_OK") != std::string::npos) {
-            remote_agent_deployed_ = true;
-        } else {
-            // Failed
-            if (config_.show_logo) {
-                std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::WARNING + "-" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + " ";
-                std::cout << "\r\n" << logo << "Agent deployment failed. Falling back to Python (slower).\r\n";
+        if (!current_hash.empty() && current_hash == agent.hash) {
+            // Hash matches! Now check version to be double sure (and handle upgrades if hash colliding?)
+            // Actually hash implies version, so hash check is sufficient.
+            // But let's run --version just to ensure it's executable and not corrupted
+            std::string ver_cmd = target_path + " --version";
+            std::string ver = execute_remote_command(ver_cmd, 1000);
+            
+            if (ver.find("DAIS_AGENT_v1.0") != std::string::npos) {
+                // All good
+                need_deploy = false;
+                remote_agent_deployed_ = true;
+                
+                 if (config_.show_logo) {
+                    std::cout << "\r[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
+                              << "] Agent verified (" << agent.hash.substr(0, 8) << "...).\r\n" << std::flush;
+                }
             }
         }
-        
 
+        if (need_deploy) {
+            // Ensure directory exists with SECURE permissions (700)
+            execute_remote_command("mkdir -p -m 700 ~/.dais/bin", 2000);
+            execute_remote_command("rm -f " + temp_b64, 2000); 
+
+            // Disable Echo
+            execute_remote_command("stty -echo", 2000);
+
+            // Start Heredoc
+            std::string start_heredoc = "cat > " + temp_b64 + " << 'DAIS_EOF'\n";
+            write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
+            
+            // Stream Data
+            constexpr size_t PAYLOAD_CHUNK = 4096;
+            size_t sent = 0;
+            
+            while (sent < b64.size()) {
+                size_t n = std::min(PAYLOAD_CHUNK, b64.size() - sent);
+                write(pty_.get_master_fd(), b64.data() + sent, n);
+                sent += n;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            
+            // End Heredoc
+            std::string end_heredoc = "\nDAIS_EOF\n";
+            write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
+            
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+            // Re-enable Echo
+            execute_remote_command("stty echo", 2000);
+
+            // Decode and Finalize
+            std::string deploy_cmd = 
+                "base64 -d " + temp_b64 + " > " + target_path + " && "
+                "chmod +x " + target_path + " && "
+                "rm " + temp_b64 + " && "
+                "echo DAIS_DEPLOY_OK";
+
+            std::string result = execute_remote_command(deploy_cmd, 10000);
+            
+            if (result.find("DAIS_DEPLOY_OK") != std::string::npos) {
+                remote_agent_deployed_ = true;
+                
+                // POST-DEPLOY VERIFICATION
+                // Ensure what we wrote is what we expected
+                current_hash = execute_remote_command(remote_hash_cmd, 1000);
+                current_hash.erase(current_hash.find_last_not_of(" \n\r\t") + 1);
+                
+                if (current_hash != agent.hash) {
+                     std::cout << "\r[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
+                              << "] Integrity Check Failed! Remote hash mismatch.\r\n" << std::flush;
+                     remote_agent_deployed_ = false; // Mark invalid
+                }
+
+            } else {
+                if (config_.show_logo) {
+                    std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::WARNING + "-" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + " ";
+                    std::cout << "\r\n" << logo << "Agent deployment failed. Falling back to Python.\r\n";
+                }
+            }
+        }
     }
     
     /**
@@ -2399,7 +2478,7 @@ namespace dais::core {
         // Prevent history pollution by disabling history for this block
         // Also suppress PS2 to prevent '> >' echo artifacts during heredoc
         execute_remote_command("export DAIS_OLD_PS2=\"$PS2\"; export PS2=''; set +o history", 2000); 
-        execute_remote_command("mkdir -p ~/.dais/bin", 2000);
+        execute_remote_command("mkdir -p -m 700 ~/.dais/bin", 2000);
         execute_remote_command("rm -f " + temp_b64, 2000);
         execute_remote_command("stty -echo", 2000);
 
