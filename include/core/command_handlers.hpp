@@ -433,8 +433,8 @@ namespace dais::core::handlers {
         
         // --- SORTING ---
         // Apply user-configured sorting (same logic as handle_ls)
-        auto get_type_priority = [](const GridItem& item) -> int {
-            if (item.stats.is_dir) return 0;
+        auto get_type_priority = [&](const GridItem& item) -> int {
+            if (item.stats.is_dir) return sort_cfg.dirs_first ? 0 : 1;
             if (item.stats.is_text || item.stats.is_data) return 1;
             return 2; // binary
         };
@@ -626,8 +626,8 @@ namespace dais::core::handlers {
         if (grid_items.empty()) return "";
 
         // --- SORTING (Copy-Paste from native_ls, can be refactored) ---
-        auto get_type_priority = [](const GridItem& item) -> int {
-            if (item.stats.is_dir) return 0;
+        auto get_type_priority = [&](const GridItem& item) -> int {
+            if (item.stats.is_dir) return sort_cfg.dirs_first ? 0 : 1;
             if (item.stats.is_text || item.stats.is_data) return 1;
             return 2; // binary
         };

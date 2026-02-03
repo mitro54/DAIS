@@ -1019,12 +1019,19 @@ namespace dais::core {
                                 std::string args = clean.length() > 3 ? clean.substr(4) : "";
 
                                 if (args.empty()) {
-                                    std::string msg = "\r\n[LS Customization]\r\n";
-                                    msg += "Sort By: " + config_.ls_sort_by + "\r\n";
-                                    msg += "Order: " + config_.ls_sort_order + "\r\n";
-                                    msg += "Dirs First: " + std::to_string(config_.ls_dirs_first) + "\r\n";
-                                    msg += "Flow: " + config_.ls_flow + "\r\n";
-                                    msg += "[USAGE] :ls [name|size|type|rows] [asc|desc] [h|v]\r\n";
+                                    std::string msg = "\r\n" + handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "LS Customization" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
+                                    msg += "Sort By   " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_by + handlers::Theme::RESET + "\r\n";
+                                    msg += "Order     " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_order + handlers::Theme::RESET + "\r\n";
+                                    msg += "Dirs 1st  " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + (config_.ls_dirs_first ? "true" : "false") + handlers::Theme::RESET + "\r\n";
+                                    msg += "Flow      " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_flow + handlers::Theme::RESET + "\r\n";
+                                    
+                                    std::string pipe = handlers::Theme::STRUCTURE + "|" + handlers::Theme::SYMLINK;
+                                    msg += handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "Usage" + handlers::Theme::STRUCTURE + "] " + handlers::Theme::RESET + ":ls " + 
+                                           handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "name" + pipe + "size" + pipe + "type" + pipe + "rows" + pipe + "none" + handlers::Theme::STRUCTURE + "] " +
+                                           handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "asc" + pipe + "desc" + handlers::Theme::STRUCTURE + "] " +
+                                           handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "true" + pipe + "false" + handlers::Theme::STRUCTURE + "] " +
+                                           handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "h" + pipe + "v" + handlers::Theme::STRUCTURE + "]\r\n";
+                                    
                                     write(STDOUT_FILENO, msg.c_str(), msg.size());
                                 } else {
                                     std::stringstream ss(args);
@@ -1040,17 +1047,26 @@ namespace dais::core {
                                         else if (segment == "name") config_.ls_sort_by = "name";
                                         else if (segment == "type") config_.ls_sort_by = "type";
                                         else if (segment == "rows") config_.ls_sort_by = "rows";
+                                        else if (segment == "none") config_.ls_sort_by = "none";
                                         else if (segment == "asc") config_.ls_sort_order = "asc";
                                         else if (segment == "desc") config_.ls_sort_order = "desc";
+                                        else if (segment == "true") config_.ls_dirs_first = true;
+                                        else if (segment == "false") config_.ls_dirs_first = false;
                                         else if (segment == "h" || segment == "horizontal") config_.ls_flow = "h";
                                         else if (segment == "v" || segment == "vertical") config_.ls_flow = "v";
                                     }
                                     
                                     std::string confirm;
                                     if (segment == "d" || segment == "default") {
-                                        confirm = "\r\nReset to default settings\r\n";
+                                        confirm = "\r\n" + handlers::Theme::STRUCTURE + "[" + handlers::Theme::SUCCESS + "-"
+                                        + handlers::Theme::STRUCTURE + "]" + handlers::Theme::UNIT + " Reset" + handlers::Theme::RESET
+                                        + " :ls " + handlers::Theme::UNIT + "to defaults" + handlers::Theme::RESET + "\r\n";
                                     } else {
-                                        confirm = "\r\nUpdated: Sort=" + config_.ls_sort_by + " Order=" + config_.ls_sort_order + " Flow=" + config_.ls_flow + "\r\n";
+                                        confirm = "\r\n" + handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "Updated Settings" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
+                                        confirm += "Sort By   " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_by + handlers::Theme::RESET + "\r\n";
+                                        confirm += "Order     " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_order + handlers::Theme::RESET + "\r\n";
+                                        confirm += "Dirs 1st  " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + (config_.ls_dirs_first ? "true" : "false") + handlers::Theme::RESET + "\r\n";
+                                        confirm += "Flow      " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_flow + handlers::Theme::RESET + "\r\n";
                                     }
                                     write(STDOUT_FILENO, confirm.c_str(), confirm.size());
                                 }
