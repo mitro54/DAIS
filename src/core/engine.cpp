@@ -811,21 +811,8 @@ namespace dais::core {
                                     i += 2; continue;
                                 }
 
-                                // NON-VISUAL MODE: If user presses Left (D) or Right (C) after history navigation,
-                                // sync history content to shell first so cursor movement works.
-                                if (history_navigated_ && pty_.is_shell_idle() && 
-                                    !cmd_accumulator.empty() && !cmd_accumulator.starts_with(":")) {
-                                    // Move cursor left by command length, then clear to end (preserves prompt)
-                                    std::cout << "\x1b[" << cmd_accumulator.size() << "D\x1b[K" << std::flush;
-                                    
-                                    // Sync shell: clear line and send accumulated content
-                                    const char kill_line = kCtrlU;
-                                    write(pty_.get_master_fd(), &kill_line, 1);
-                                    write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
-                                    
-                                    // Reset flag - now shell has content and arrow will work
-                                    history_navigated_ = false;
-                                }
+                                // Sync history content to shell before cursor movement
+                                sync_history_to_shell(cmd_accumulator);
                             }
                         }
                         
@@ -1024,20 +1011,9 @@ namespace dais::core {
                                 continue; // Skip sending the actual Enter key to remote
                             }
 
-                        // --- SYNC SHELL WITH VISUAL STATE ---
-                        // Only sync when user actually navigated history (changes were visual-only).
-                        // Skip for internal commands (:) which are handled separately.
-                        if (history_navigated_ && pty_.is_shell_idle() && !cmd_accumulator.empty() && 
-                            !cmd_accumulator.starts_with(":")) {
-                            // Move cursor left by command length, then clear to end (preserves prompt)
-                            std::cout << "\x1b[" << cmd_accumulator.size() << "D\x1b[K" << std::flush;
-                            
-                            // Sync: clear shell's empty line and send command
-                            const char kill_line = kCtrlU;  // Ctrl+U
-                            write(pty_.get_master_fd(), &kill_line, 1);
-                            write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
-                        }
-                        history_navigated_ = false;  // Reset flag
+                        // Sync history content to shell before Enter execution
+                        sync_history_to_shell(cmd_accumulator);
+                        history_navigated_ = false;  // Always reset on Enter
                         
                         // --- STATE TRANSITION: IDLE -> RUNNING ---
                         shell_state_ = ShellState::RUNNING;
@@ -1275,22 +1251,8 @@ namespace dais::core {
                             }
                         }
 
-                        // --- HISTORY EDITING SYNC (same as printable chars) ---
-                        // If user starts editing after history navigation (local shell),
-                        // sync the history content to shell first, then allow normal editing.
-                        if (history_navigated_ && pty_.is_shell_idle() && !cmd_accumulator.empty() &&
-                            !cmd_accumulator.starts_with(":")) {
-                            // Move cursor left by command length, then clear to end (preserves prompt)
-                            std::cout << "\x1b[" << cmd_accumulator.size() << "D\x1b[K" << std::flush;
-                            
-                            // Sync shell: clear line and send accumulated content
-                            const char kill_line = kCtrlU;
-                            write(pty_.get_master_fd(), &kill_line, 1);
-                            write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
-                            
-                            // Reset flag - subsequent edits go directly to shell
-                            history_navigated_ = false;
-                        }
+                        // Sync history content to shell before backspace editing
+                        sync_history_to_shell(cmd_accumulator);
 
                         // Check if we are in a DAIS command (: commands stay visual)
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
@@ -1347,24 +1309,8 @@ namespace dais::core {
                             }
                         }
 
-                        // --- HISTORY EDITING SYNC ---
-                        // If user starts typing after history navigation (local shell),
-                        // sync the history content to shell first, then allow normal typing.
-                        // This enables editing history commands instead of being stuck in visual mode.
-                        if (history_navigated_ && pty_.is_shell_idle() && !cmd_accumulator.empty() &&
-                            !cmd_accumulator.starts_with(":")) {
-                            // Move cursor left by command length, then clear to end (preserves prompt)
-                            std::cout << "\x1b[" << cmd_accumulator.size() << "D\x1b[K" << std::flush;
-                            
-                            // Sync shell: clear line and send accumulated content
-                            // Shell will redraw after Ctrl-U
-                            const char kill_line = kCtrlU;
-                            write(pty_.get_master_fd(), &kill_line, 1);
-                            write(pty_.get_master_fd(), cmd_accumulator.c_str(), cmd_accumulator.size());
-                            
-                            // Reset flag - subsequent chars go directly to shell
-                            history_navigated_ = false;
-                        }
+                        // Sync history content to shell before typing
+                        sync_history_to_shell(cmd_accumulator);
 
                         // Track input if shell is idle OR if we are in a remote session 
                         // (needed for :db interception in SSH)
@@ -2572,6 +2518,37 @@ namespace dais::core {
         // Update internal state - shell will see this when Enter is pressed
         current_line = new_content;
         cursor_pos_ = current_line.size();
+    }
+
+    /**
+     * @brief Syncs visual-only history content to the shell.
+     * 
+     * When user navigates DAIS history with Up/Down arrows, changes are
+     * visual-only (we write to STDOUT, not to the PTY). Before the shell
+     * can process edits (left/right arrows, backspace, typing), we must
+     * sync the content to the shell's input buffer.
+     * 
+     * @param accumulator The current command buffer to sync
+     * @return true if sync was performed, false if not needed
+     */
+    bool Engine::sync_history_to_shell(std::string& accumulator) {
+        // Only sync if: navigated history + shell idle + non-empty + not internal command
+        if (!history_navigated_ || !pty_.is_shell_idle() || 
+            accumulator.empty() || accumulator.starts_with(":")) {
+            return false;
+        }
+        
+        // 1. Clear visual: move cursor left by command length, then clear to end
+        std::cout << "\x1b[" << accumulator.size() << "D\x1b[K" << std::flush;
+        
+        // 2. Sync to shell: clear line (Ctrl+U) then send accumulated content
+        const char kill_line = kCtrlU;
+        write(pty_.get_master_fd(), &kill_line, 1);
+        write(pty_.get_master_fd(), accumulator.c_str(), accumulator.size());
+        
+        // 3. Reset flag - shell now has content
+        history_navigated_ = false;
+        return true;
     }
 
     /**

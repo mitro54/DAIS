@@ -256,6 +256,19 @@ namespace dais::core {
         void navigate_history(int direction, std::string& current_line); ///< Arrow key nav
         
         /**
+         * @brief Syncs visual-only history content to the shell.
+         * 
+         * When user navigates DAIS history (Up/Down), changes are visual-only.
+         * Before the shell can process edits (arrows, backspace, typing), we must
+         * sync the content. This helper centralizes that logic.
+         * 
+         * @param accumulator The current command buffer to sync
+         * @return true if sync was performed, false if not needed
+         */
+        bool sync_history_to_shell(std::string& accumulator);
+
+        
+        /**
          * @brief Handles the execution of the :db command module.
          * Bridges C++ engine with Python db_handler.
          */
