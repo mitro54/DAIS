@@ -116,6 +116,7 @@ namespace dais::core {
         
         // Helper to allow main.cpp to resize window
         void resize_window(int rows, int cols) {
+            terminal_cols_ = cols;
             pty_.resize(rows, cols, config_.show_logo);
         }
 
@@ -160,6 +161,7 @@ namespace dais::core {
          * @return std::string The cleaned, reconstructed command string.
          */
         std::string recover_cmd_from_buffer(const std::string& raw_buffer);
+        void execute_internal_command(const std::string& cmd);
 
         // --- THREAD SAFETY ---
         std::mutex state_mutex_;
@@ -219,8 +221,20 @@ namespace dais::core {
         bool history_navigated_ = false;            ///< True if arrow navigation was used
         bool tab_used_ = false;                      ///< True if Tab was used (accumulator unreliable)
         bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
+        size_t cursor_pos_ = 0;                     ///< Index in input_accumulator_ for editable prompt
+        std::atomic<int> terminal_cols_{80};        ///< Current terminal width
+        int initial_prompt_cols_ = 0;              ///< Prompt width when visual mode started
+        bool was_visual_mode_ = false;              ///< For detecting entry into visual mode
+        bool bracketed_paste_active_ = false;       ///< True if we are inside a \e[200~ ... \e[201~ block
+        std::string paste_accumulator_;             ///< Local buffer for pasted text
         std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
+        
+        bool is_internal_command(const std::string& line); ///< Helper to identify :commands
+        void process_paste_block();                 ///< Handles dispatching of buffered paste data
+        void visual_move_cursor(int old_pos, int new_pos); ///< Multi-line aware cursor movement
+        int calculate_visual_length(const std::string& buffer); ///< Helper to get visual width of string
+        void ensure_visual_mode_init(int offset_already_in_buffer = 0); ///< Safeguard for prompt width tracking
         
         void load_history();                        ///< Load from file on startup
         void save_history_entry(const std::string& cmd);  ///< Append to file
