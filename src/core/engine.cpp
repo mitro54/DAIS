@@ -936,7 +936,11 @@ namespace dais::core {
                                         execute_remote_command(inject, 2000);
                                     }
     
+                                    sync_child_cwd(); // Sync CWD to find local .env
                                     handle_db_command(query);
+
+                                    // Restore prompt line AFTER output
+                                    write(pty_.get_master_fd(), "\n", 1);
     
                                     intercept = true;
                                 }
@@ -960,8 +964,13 @@ namespace dais::core {
                                     p += 2;
                                 }
                                 std::string inject = "{ history -s \"" + escaped + "\" 2>/dev/null || print -s \"" + escaped + "\" 2>/dev/null; }";
-                                execute_remote_command(inject, 2000);
+                                if (is_remote_session_) {
+                                    execute_remote_command(inject, 2000);
+                                }
 
+                                // Restore prompt line AFTER output
+                                write(pty_.get_master_fd(), "\n", 1);
+                                
                                 intercept = true;
                             }
                             // Check for Agent Status command
@@ -988,8 +997,13 @@ namespace dais::core {
 
                                 // Inject into remote history
                                 std::string inject = "{ history -s \":agent-status\" 2>/dev/null || print -s \":agent-status\" 2>/dev/null; }";
-                                execute_remote_command(inject, 2000);
+                                if (is_remote_session_) {
+                                    execute_remote_command(inject, 2000);
+                                }
 
+                                // Restore prompt line AFTER output
+                                write(pty_.get_master_fd(), "\n", 1);
+    
                                 intercept = true;
                             }
                             // Check for LS customization command
@@ -998,18 +1012,19 @@ namespace dais::core {
                                 save_history_entry(clean);
                                 history_index_ = command_history_.size();
 
-                                std::string args = clean.length() > 3 ? clean.substr(4) : "";
-                                
-                                // CLEAR REMOTE LINE
+                                // CLEAR REMOTE LINE: Send Ctrl+U to remote to wipe the "echo"
                                 const char kill_line = kCtrlU; 
                                 write(pty_.get_master_fd(), &kill_line, 1);
+
+                                std::string args = clean.length() > 3 ? clean.substr(4) : "";
 
                                 if (args.empty()) {
                                     std::string msg = "\r\n[LS Customization]\r\n";
                                     msg += "Sort By: " + config_.ls_sort_by + "\r\n";
                                     msg += "Order: " + config_.ls_sort_order + "\r\n";
                                     msg += "Dirs First: " + std::to_string(config_.ls_dirs_first) + "\r\n";
-                                    msg += "[USAGE] :ls [name|size|type|rows] [asc|desc]\r\n";
+                                    msg += "Flow: " + config_.ls_flow + "\r\n";
+                                    msg += "[USAGE] :ls [name|size|type|rows] [asc|desc] [h|v]\r\n";
                                     write(STDOUT_FILENO, msg.c_str(), msg.size());
                                 } else {
                                     std::stringstream ss(args);
@@ -1019,6 +1034,7 @@ namespace dais::core {
                                             config_.ls_sort_by = "type";
                                             config_.ls_sort_order = "asc";
                                             config_.ls_dirs_first = true;
+                                            config_.ls_flow = "h";
                                         } 
                                         else if (segment == "size") config_.ls_sort_by = "size";
                                         else if (segment == "name") config_.ls_sort_by = "name";
@@ -1026,9 +1042,16 @@ namespace dais::core {
                                         else if (segment == "rows") config_.ls_sort_by = "rows";
                                         else if (segment == "asc") config_.ls_sort_order = "asc";
                                         else if (segment == "desc") config_.ls_sort_order = "desc";
+                                        else if (segment == "h" || segment == "horizontal") config_.ls_flow = "h";
+                                        else if (segment == "v" || segment == "vertical") config_.ls_flow = "v";
                                     }
                                     
-                                    std::string confirm = "\r\nUpdated: Sort=" + config_.ls_sort_by + " Order=" + config_.ls_sort_order + "\r\n";
+                                    std::string confirm;
+                                    if (segment == "d" || segment == "default") {
+                                        confirm = "\r\nReset to default settings\r\n";
+                                    } else {
+                                        confirm = "\r\nUpdated: Sort=" + config_.ls_sort_by + " Order=" + config_.ls_sort_order + " Flow=" + config_.ls_flow + "\r\n";
+                                    }
                                     write(STDOUT_FILENO, confirm.c_str(), confirm.size());
                                 }
 
@@ -1040,7 +1063,12 @@ namespace dais::core {
                                     p += 2;
                                 }
                                 std::string inject = "{ history -s \"" + escaped + "\" 2>/dev/null || print -s \"" + escaped + "\" 2>/dev/null; }";
-                                execute_remote_command(inject, 2000);
+                                if (is_remote_session_) {
+                                    execute_remote_command(inject, 2000);
+                                }
+
+                                // Restore prompt line AFTER output
+                                write(pty_.get_master_fd(), "\n", 1);
 
                                 intercept = true;
                             }
@@ -1240,9 +1268,10 @@ namespace dais::core {
                                     
                                     // Cancel the shell's pending input and trigger new prompt
                                     // The user typed "ls" which was forwarded to shell as they typed.
-                                    // Send Ctrl+U (clear line) to cancel it, then newline for fresh prompt.
-                                    char clear_and_prompt[] = { kCtrlU, '\n', 0 }; // Ctrl+U + newline
-                                    write(pty_.get_master_fd(), clear_and_prompt, 2);
+                                    // Send Ctrl+U (clear line) to cancel it. 
+                                    // We do NOT send newline here to avoid double-prompting, as Ctrl+U typically repaints prompt.
+                                    char clear_and_prompt[] = { kCtrlU, 0 }; 
+                                    write(pty_.get_master_fd(), clear_and_prompt, 1);
                                     
                                     // Clear accumulator and skip writing command to PTY
                                     cmd_accumulator.clear();
