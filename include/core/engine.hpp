@@ -160,11 +160,19 @@ namespace dais::core {
          * @param raw_buffer The raw PTY output buffer containing prompts, echoes, and control codes.
          * @return std::string The cleaned, reconstructed command string.
          */
-        std::string recover_cmd_from_buffer(const std::string& raw_buffer);
-        void execute_internal_command(const std::string& cmd);
+        
+        /**
+         * @brief Execute DAIS internal commands (prefixed with ':')
+         * 
+         * @param cmd The cleaned command string (e.g., ":ls", ":db select * from t")
+         * @param from_shell_echo If true, command was recovered from shell's echo output
+         *        (e.g., history recall). Prevents double-echoing of the command.
+         */
+        void execute_internal_command(const std::string& cmd, bool from_shell_echo = false);
 
         // --- THREAD SAFETY ---
         std::mutex state_mutex_;
+        mutable std::recursive_mutex terminal_mutex_;    ///< Synchronizes all writes to STDOUT_FILENO (Recursive for nested UI calls)
 
         // --- PASS-THROUGH MODE STATE (only accessed from forward_shell_output thread) ---
         mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
@@ -238,6 +246,12 @@ namespace dais::core {
         
         void load_history();                        ///< Load from file on startup
         void save_history_entry(const std::string& cmd);  ///< Append to file
+
+        struct CursorRecovery {
+            std::string command;
+            int cursor_idx;
+        };
+        CursorRecovery recover_cmd_from_buffer(const std::string& buffer); ///< Helper to recover command and cursor
         void show_history(const std::string& args); ///< Handle :history command
         void navigate_history(int direction, std::string& current_line); ///< Arrow key nav
         

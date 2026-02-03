@@ -558,72 +558,75 @@ namespace dais::core {
                     }
                 }
                 
-                for (ssize_t i = 0; i < bytes_read; ++i) {
-                    char c = buffer[i];
-                    
-                    // Shell-Specific Logo Injection Strategy:
-                    if (is_complex_shell_ && !is_fish_) {
-                        // Zsh: Delayed logo injection with ANSI escape sequence tracking.
-                        // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
-                        if (pass_through_esc_state_ == 1) {
-                            if (c == '[') pass_through_esc_state_ = 2;
-                            else if (c == ']') pass_through_esc_state_ = 3;
-                            else if (c == '(' || c == ')') pass_through_esc_state_ = 4;
-                            else pass_through_esc_state_ = 0;
-                        } else if (pass_through_esc_state_ == 2) {
-                            if (std::isalpha(static_cast<unsigned char>(c))) pass_through_esc_state_ = 0;
-                        } else if (pass_through_esc_state_ == 3) {
-                            if (c == kBell) pass_through_esc_state_ = 0;
-                        } else if (pass_through_esc_state_ == 4) {
-                            pass_through_esc_state_ = 0;
-                        } else if (c == kEsc) {
-                            pass_through_esc_state_ = 1;
-                        } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
-                                   (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
-                            // Inject logo at line start when shell is idle (and NOT in vim)
-                            if (c >= 33 && c < 127) {
-                                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                at_line_start_ = false;
+                {
+                    std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+                    for (ssize_t i = 0; i < bytes_read; ++i) {
+                        char c = buffer[i];
+                        
+                        // Shell-Specific Logo Injection Strategy:
+                        if (is_complex_shell_ && !is_fish_) {
+                            // Zsh: Delayed logo injection with ANSI escape sequence tracking.
+                            // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
+                            if (pass_through_esc_state_ == 1) {
+                                if (c == '[') pass_through_esc_state_ = 2;
+                                else if (c == ']') pass_through_esc_state_ = 3;
+                                else if (c == '(' || c == ')') pass_through_esc_state_ = 4;
+                                else pass_through_esc_state_ = 0;
+                            } else if (pass_through_esc_state_ == 2) {
+                                if (std::isalpha(static_cast<unsigned char>(c))) pass_through_esc_state_ = 0;
+                            } else if (pass_through_esc_state_ == 3) {
+                                if (c == kBell) pass_through_esc_state_ = 0;
+                            } else if (pass_through_esc_state_ == 4) {
+                                pass_through_esc_state_ = 0;
+                            } else if (c == kEsc) {
+                                pass_through_esc_state_ = 1;
+                            } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
+                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                // Inject logo at line start when shell is idle (and NOT in vim)
+                                if (c >= 33 && c < 127) {
+                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                    at_line_start_ = false;
+                                }
                             }
-                        }
-                    } else if (!is_complex_shell_) {
-                        // Simple shells: inject immediately
-                        if (at_line_start_) {
-                            if (c != '\n' && c != '\r' && config_.show_logo && shell_state_ == ShellState::IDLE && 
-                                (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
-                                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                at_line_start_ = false;
+                        } else if (!is_complex_shell_) {
+                            // Simple shells: inject immediately
+                            if (at_line_start_) {
+                                if (c != '\n' && c != '\r' && config_.show_logo && shell_state_ == ShellState::IDLE && 
+                                    (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                    at_line_start_ = false;
+                                }
                             }
-                        }
-                    }
-                    
-                    write(STDOUT_FILENO, &c, 1);
-                    
-                    if (c == '\n') {
-                        at_line_start_ = true;
-                        in_more_pager_ = false;  // Pager exits on newline (user scrolled)
-                        std::lock_guard<std::mutex> lock(prompt_mutex_);
-                        prompt_buffer_.clear();
-                    } else if (c == '\r') {
-                        // For complex shells, \r means "back to line start"
-                        // For simple shells, \r often means new prompt line
-                        if (!is_complex_shell_) {
-                            at_line_start_ = true;
-                        }
-                    }
-                    
-                    // ALWAYS capture to prompt_buffer_ (printable AND control chars)
-                    if (true) { 
-                        std::lock_guard<std::mutex> lock(prompt_mutex_);
-                        prompt_buffer_ += c;
-                        if (prompt_buffer_.size() > 1024) {
-                            prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 1024);
                         }
                         
-                        if (prompt_buffer_.find("--More--") != std::string::npos) {
-                            in_more_pager_ = true;
+                        write(STDOUT_FILENO, &c, 1);
+                        
+                        if (c == '\n') {
+                            at_line_start_ = true;
+                            in_more_pager_ = false;  // Pager exits on newline (user scrolled)
+                            std::lock_guard<std::mutex> lock(prompt_mutex_);
+                            prompt_buffer_.clear();
+                        } else if (c == '\r') {
+                            // For complex shells, \r means "back to line start"
+                            // For simple shells, \r often means new prompt line
+                            if (!is_complex_shell_) {
+                                at_line_start_ = true;
+                            }
+                        }
+                        
+                        // ALWAYS capture to prompt_buffer_ (printable AND control chars)
+                        if (true) { 
+                            std::lock_guard<std::mutex> lock(prompt_mutex_);
+                            prompt_buffer_ += c;
+                            if (prompt_buffer_.size() > 1024) {
+                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 1024);
+                            }
+                            
+                            if (prompt_buffer_.find("--More--") != std::string::npos) {
+                                in_more_pager_ = true;
+                            }
                         }
                     }
                 }
@@ -764,16 +767,28 @@ namespace dais::core {
                             auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 now - last_command_time_).count();
                             
-                            // Intercept arrows for DAIS history navigation ONLY for local sessions
-                            // Remote sessions use the shell's own history (forwarded arrows)
+                            // Intercept arrows for DAIS history navigation
+                            // CASE 1: Local Session (Standard) - always intercept if idle
+                            // CASE 2: Remote Session (Internal Command) - stash/restore :db or :commands
+                            bool internal_mode = cmd_accumulator.starts_with(":");
+                            
                             if ((arrow == 'A' || arrow == 'B') && 
-                                pty_.is_shell_idle() && 
+                                (pty_.is_shell_idle() || (is_remote_session_ && internal_mode)) && 
                                 elapsed > 200) {
                                 // Safe to intercept for DAIS history
                                 int direction = (arrow == 'A') ? -1 : 1;
                                 navigate_history(direction, cmd_accumulator);
                                 i += 2;  // Skip '['/O' and arrow letter
                                 continue;  // Don't forward to shell
+                            }
+                            
+                            // CASE 3: Remote Session (Normal Command) - Pass through but CLEAR CACHE
+                            // Validate shell history sync by clearing local accumulator so we adopt fresh
+                            if ((arrow == 'A' || arrow == 'B') && is_remote_session_ && !internal_mode) {
+                                cmd_accumulator.clear();
+                                cursor_pos_ = 0;
+                                was_visual_mode_ = false;
+                                // Fallthrough to forward the key to shell naturally
                             }
                             
                             // --- LEFT/RIGHT ARROW SYNC ---
@@ -897,6 +912,7 @@ namespace dais::core {
                     // Clears the current line in the shell, so reset our accumulator and flags too.
                     if (c == '\x03') {
                         if (visual_mode) {
+                            std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
                             visual_move_cursor(cursor_pos_, 0);
                             write(STDOUT_FILENO, "\x1b[J", 3);
                         }
@@ -914,48 +930,55 @@ namespace dais::core {
                     // Check for Enter key (\r or \n) indicating command submission
                     if (c == '\r' || c == '\n') {
                         if (visual_mode) {
+                            std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
                             visual_move_cursor(cursor_pos_, 0);
                             write(STDOUT_FILENO, "\x1b[J", 3);
                         }
                         cursor_pos_ = 0;
                         was_visual_mode_ = false;
                         
-                        // --- REMOTE INTERCEPTION AT ENTER ---
-                        // For remote sessions, we catch commands here (at Enter key) 
-                        // so users can type full arguments before we execute.
-                        // SYNC FIX: Always check remote session state before interception
-                        // to ensure is_remote_session_ is current (fixes history recall issues).
+                        // ═══════════════════════════════════════════════════════════════════════════
+                        /// @brief REMOTE COMMAND INTERCEPTION
+                        /// 
+                        /// Remote sessions require special handling because:
+                        /// 1. Commands may come from shell history (Up-Arrow), not keyboard input
+                        /// 2. The shell echoes commands back asynchronously (race condition)
+                        /// 3. Tab completion modifies cmd_accumulator unpredictably
+                        ///
+                        /// We solve this by:
+                        /// - Checking remote session state fresh (avoids stale detection)
+                        /// - Recovering the visual command from PTY output if local buffer is unreliable
+                        /// - Tracking command source to prevent double-echoing
+                        // ═══════════════════════════════════════════════════════════════════════════
                         check_remote_session();
                         
                         std::string clean = cmd_accumulator;
+                        bool from_shell_echo = false;
 
                         if (!pty_.is_shell_idle() && is_remote_session_ && !in_alt_screen_) {
-                            // RECOVERY: If cmd_accumulator is empty or contains tab noise,
-                            // we try to recover the actual visual line from prompt_buffer_.
-                            // This is critical for history navigation (Up-Arrow), where
-                            // characters come from the shell, not the keyboard.
+                            // Recover command from shell's visual output (handles history navigation)
                             std::string recovered;
                             {
                                 std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovered = recover_cmd_from_buffer(prompt_buffer_);
+                                CursorRecovery recovery = recover_cmd_from_buffer(prompt_buffer_);
+                                recovered = recovery.command;
                             }
                             
-                            // FALLBACK: Use local input accumulator if recovered is empty/bad
-                            // This FIXES the "Copy Paste Race Condition" where echo hasn't arrived yet.
+                            // Fallback: use local input if shell echo hasn't arrived yet (paste race)
                             std::string local_input;
                             {
                                 std::lock_guard<std::mutex> lock(input_mutex_);
                                 local_input = input_accumulator_;
-                                // Reset after use
                                 input_accumulator_.clear(); 
                                 cursor_pos_ = 0;
                             }
 
+                            // Choose best available command source
                             if (clean.empty() || clean.find('\t') != std::string::npos || tab_used_) {
                                 if (!recovered.empty()) {
                                     clean = recovered;
+                                    from_shell_echo = true; // Shell already displayed this command
                                 } else if (!local_input.empty() && local_input.find(':') != std::string::npos) {
-                                    // Trust local input if reliable (e.g. starts with :)
                                     clean = local_input;
                                 }
                             }
@@ -974,7 +997,7 @@ namespace dais::core {
                             // GUARD: Do NOT intercept if in alternate screen (vim/less)
                             if (!in_alt_screen_) {
                                 if (clean.starts_with(":")) {
-                                    execute_internal_command(clean);
+                                    execute_internal_command(clean, from_shell_echo);
                                     intercept = true;
                                 }
                             // Check for standard ls (intercept and use agent)
@@ -1229,14 +1252,26 @@ namespace dais::core {
                         // pulled from the shell's native history (Up-Arrow). 
                         // We try to recover it so we can keep edits within DAIS.
                         if (cmd_accumulator.empty()) {
-                            std::string recovered;
+                            CursorRecovery recovery;
                             {
                                 std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovered = recover_cmd_from_buffer(prompt_buffer_);
+                                recovery = recover_cmd_from_buffer(prompt_buffer_);
                             }
-                            if (recovered.starts_with(":")) {
-                                cmd_accumulator = recovered;
-                                ensure_visual_mode_init(recovered.size());
+                            if (recovery.command.starts_with(":")) {
+                                cmd_accumulator = recovery.command;
+                                cursor_pos_ = recovery.cursor_idx;
+                                ensure_visual_mode_init(cursor_pos_);
+
+                                if (is_remote_session_) {
+                                    // Rewind to start of command (handles wrapping)
+                                    visual_move_cursor(cursor_pos_, 0); 
+                                    // Clear to End of Screen (wipes remote text + wrapped lines)
+                                    std::cout << "\x1b[J"; 
+                                    // Repaint
+                                    std::cout << cmd_accumulator << std::flush;
+                                    // Restore cursor
+                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
+                                }
                             }
                         }
 
@@ -1288,14 +1323,27 @@ namespace dais::core {
                         // ADOPTION: Same as backspace, we try to adopt history commands
                         // before the first new character "leaks" to the shell.
                         if (cmd_accumulator.empty()) {
-                            std::string recovered;
+                            CursorRecovery recovery;
                             {
                                 std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovered = recover_cmd_from_buffer(prompt_buffer_);
+                                recovery = recover_cmd_from_buffer(prompt_buffer_);
                             }
-                            if (recovered.starts_with(":")) {
-                                cmd_accumulator = recovered;
-                                ensure_visual_mode_init(recovered.size());
+                            if (recovery.command.starts_with(":")) {
+                                cmd_accumulator = recovery.command;
+                                cursor_pos_ = recovery.cursor_idx;
+                                ensure_visual_mode_init(cursor_pos_);
+
+                                if (is_remote_session_) {
+                                    std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+                                    // Rewind to start of command (handles wrapping)
+                                    visual_move_cursor(cursor_pos_, 0); 
+                                    // Clear to End of Screen (wipes remote text + wrapped lines)
+                                    std::cout << "\x1b[J"; 
+                                    // Repaint
+                                    std::cout << cmd_accumulator << std::flush;
+                                    // Restore cursor
+                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
+                                }
                             }
                         }
 
@@ -1338,6 +1386,7 @@ namespace dais::core {
                                            );
                         
                         if (visual_mode) {
+                            std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
                             int old_cursor = cursor_pos_ - 1; // Position before char insertion
                             std::string tail = cmd_accumulator.substr(cursor_pos_);
                             
@@ -1431,15 +1480,30 @@ namespace dais::core {
         cursor_pos_ = input_accumulator_.size();
     }
 
-    void Engine::execute_internal_command(const std::string& clean) {
+    // ═══════════════════════════════════════════════════════════════════════════
+    /// @brief Execute DAIS internal commands (prefixed with ':')
+    /// 
+    /// @param clean The cleaned command string (e.g., ":ls", ":db select * from t")
+    /// @param from_shell_echo If true, command was recovered from shell's echo output
+    ///        (e.g., history recall). Prevents double-echoing of the command.
+    ///
+    /// Internal commands are intercepted before reaching the shell, allowing DAIS
+    /// to provide enhanced functionality like configuration, database queries, and
+    /// remote agent management without shell interference.
+    // ═══════════════════════════════════════════════════════════════════════════
+    void Engine::execute_internal_command(const std::string& clean, bool from_shell_echo) {
         if (clean.empty()) return;
+        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
 
-        // Ensure intercepted commands are echoed visibly
-        // so the terminal history remains clear.
-        // NOTE: Visual area was cleared by the Enter handler in process_user_input.
-        std::cout << clean << "\r\n" << std::flush;
+        // Echo command only if user typed it fresh (not from shell history recall)
+        if (!from_shell_echo) {
+            std::cout << clean << "\r\n" << std::flush;
+        } else {
+            // Shell already echoed command - just print newline to separate from output
+            std::cout << "\r\n" << std::flush;
+        }
 
-        // Save to local history if it's not a :history command itself (to avoid loops)
+        // Persist to local history (skip remote sessions and :history itself to avoid loops)
         if (!is_remote_session_ && !clean.starts_with(":history")) {
             save_history_entry(clean);
             history_index_ = command_history_.size();
@@ -1502,7 +1566,7 @@ namespace dais::core {
             write(pty_.get_master_fd(), &kill_line, 1);
             
             std::string logo = handlers::Theme::STRUCTURE + "[" + handlers::Theme::NOTICE + "AGENT" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET;
-            std::cout << "\r\n" << logo << " Status Report:\r\n";
+            std::cout << logo << " Status Report:\r\n";
             std::cout << "  Active: " << (is_remote_session_ ? "Yes (Remote)" : "No (Local)") << "\r\n";
             if (is_remote_session_) {
                 std::cout << "  Deployed: " << (remote_agent_deployed_ ? (handlers::Theme::SUCCESS + "YES (Binary)" + handlers::Theme::RESET) : (handlers::Theme::WARNING + "NO (Python Fallback)" + handlers::Theme::RESET)) << "\r\n";
@@ -1535,7 +1599,7 @@ namespace dais::core {
             }
 
             if (args.empty()) {
-                std::string msg = "\r\n" + handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "LS Customization" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
+                std::string msg = handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "LS Customization" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
                 msg += "Sort By   " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_by + handlers::Theme::RESET + "\r\n";
                 msg += "Order     " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_sort_order + handlers::Theme::RESET + "\r\n";
                 msg += "Dirs 1st  " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + (config_.ls_dirs_first ? "true" : "false") + handlers::Theme::RESET + "\r\n";
@@ -1571,7 +1635,7 @@ namespace dais::core {
                     else if (segment == "v" || segment == "vertical") config_.ls_flow = "v";
                 }
                 
-                std::string confirm = "\r\n" + handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "Updated Settings" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
+                std::string confirm = handlers::Theme::STRUCTURE + "[" + handlers::Theme::UNIT + "Updated Settings" + handlers::Theme::STRUCTURE + "]" + handlers::Theme::RESET + "\r\n";
                 if (segment == "d" || segment == "default") {
                     confirm = handlers::Theme::STRUCTURE + "[" + handlers::Theme::SUCCESS + "-"
                             + handlers::Theme::STRUCTURE + "]" + handlers::Theme::UNIT + " Reset" + handlers::Theme::RESET
@@ -1586,7 +1650,15 @@ namespace dais::core {
             }
 
             if (is_remote_session_) {
-                std::string inject = "{ history -s \":ls\" 2>/dev/null || print -s \":ls\" 2>/dev/null; }";
+                // Inject the FULL command with args (e.g. :ls -la)
+                // Escape quotes just in case
+                std::string escaped = clean;
+                size_t p = 0;
+                while ((p = escaped.find("\"", p)) != std::string::npos) {
+                    escaped.replace(p, 1, "\\\"");
+                    p += 2;
+                }
+                std::string inject = "{ history -s \"" + escaped + "\" 2>/dev/null || print -s \"" + escaped + "\" 2>/dev/null; }";
                 execute_remote_command(inject, 2000);
             }
             write(pty_.get_master_fd(), "\n", 1);
@@ -1615,6 +1687,7 @@ namespace dais::core {
     // =========================================================================
 
     void Engine::handle_remote_ls(const handlers::LSArgs& ls_args, const std::string& original_cmd) {
+        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
         // 1. Cancel the user's "ls" characters that are sitting on the remote prompt
         // Ctrl-C (\x03) can be unreliable if the shell is laggy.
         // Safer: Ctrl-A (Start of Line) + Ctrl-K (Kill Line)
@@ -1819,9 +1892,9 @@ namespace dais::core {
      * comes from the shell's echo rather than user keystrokes.
      * 
      * @param buffer The raw PTY output buffer containing prompts, commands, and ANSI codes.
-     * @return The cleaned command string, or empty if prompt not found.
+     * @return A CursorRecovery struct with the command and local cursor index.
      */
-    std::string Engine::recover_cmd_from_buffer(const std::string& buffer) {
+    Engine::CursorRecovery Engine::recover_cmd_from_buffer(const std::string& buffer) {
         // 1. Terminal Simulation (Cursor & Overwrite)
         // We reconstruct the line by simulating cursor movements and overwrites.
         std::string clean_line;
@@ -1949,18 +2022,16 @@ namespace dais::core {
             }
         }
         
-        // 3. Extract command
         if (best_pos != std::string::npos) {
+            // Found prompt, assume command follows
             std::string recovered = clean_line.substr(best_pos + prompt_len);
             
-            // Trim leading/trailing whitespace
-            const char* ws = " \t\r\n";
-            recovered.erase(0, recovered.find_first_not_of(ws));
-            if (recovered.find_last_not_of(ws) != std::string::npos)
-                recovered.erase(recovered.find_last_not_of(ws) + 1);
+            // Adjust cursor index to be relative to the start of the command
+            int relative_cursor = static_cast<int>(cursor) - static_cast<int>(best_pos + prompt_len);
+            if (relative_cursor < 0) relative_cursor = 0;
+            if (relative_cursor > recovered.size()) relative_cursor = recovered.size();
             
-            // DEEP CLEAN: Strip any remaining non-printable chars (e.g. malformed ANSI leftovers)
-            // This is critical for SSH history where syntax highlighting might leak through
+            // DEEP CLEAN: Strip any remaining non-printable chars
             std::string deep_clean;
             for (char c : recovered) {
                 if (std::isprint(static_cast<unsigned char>(c))) {
@@ -1968,11 +2039,12 @@ namespace dais::core {
                 }
             }
             if (!deep_clean.empty()) recovered = deep_clean;
+            if (relative_cursor > recovered.size()) relative_cursor = recovered.size();
 
-            return recovered;
+            return {recovered, relative_cursor};
         }
-
-        return "";
+        
+        return {"", 0};
     }
 
     void Engine::check_remote_session() {
@@ -2063,11 +2135,39 @@ namespace dais::core {
         });
 
         if (finished) {
-            // "Gobble" trailing prompt:
-            // On slow connections (ARM/QEMU), the shell prompt often arrives 10-50ms *after* the sentinel.
-            // If we stop capturing immediately, that prompt leaks to stdout (causing visual duplicates).
-            // We wait a brief moment to ensure we capture/consume the prompt too.
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            /// @brief Prompt-Aware Buffering (Race Condition Fix)
+            /// 
+            /// SSH/PTY streams fragment data unpredictably. Without this logic, the
+            /// shell prompt (e.g., "user@host$ ") might arrive AFTER we disable capture,
+            /// leaking it to stdout and causing visual glitches ("ghost prompts").
+            ///
+            /// Solution: Wait until the buffer definitively ends with a shell prompt
+            /// (either user-configured or standard patterns like "$ ").
+            capture_cv_.wait_for(lock, std::chrono::milliseconds(1000), [&]{
+                if (capture_buffer_.empty()) return false;
+                
+                // Prompt isn't complete if buffer ends with newline
+                char last = capture_buffer_.back();
+                if (last == '\n' || last == '\r') return false;
+
+                // Check user-configured prompts first (supports fancy prompts like "➜ ")
+                for (const auto& p : config_.shell_prompts) {
+                    if (capture_buffer_.size() >= p.size() && 
+                        capture_buffer_.compare(capture_buffer_.size() - p.size(), p.size(), p) == 0) {
+                        return true; 
+                    }
+                }
+
+                // Fallback: standard shell prompts ("$ ", "# ", "> ")
+                if (capture_buffer_.size() >= 2) {
+                    char second_last = capture_buffer_[capture_buffer_.size() - 2];
+                    if (last == ' ' && (second_last == '$' || second_last == '#' || second_last == '>')) {
+                        return true;
+                    }
+                }
+                
+                return false;
+            });
         }
 
         // 4. Disable Capture
@@ -2459,11 +2559,14 @@ namespace dais::core {
         
         // --- VISUAL UPDATE ONLY ---
         // Move back to start of command, clear everything after, print new content
-        visual_move_cursor(current_line.size(), 0);
-        write(STDOUT_FILENO, "\x1b[J", 3); // J (Erase in Display) with 0 = clear to end of screen
-        
-        if (!new_content.empty()) {
-            write(STDOUT_FILENO, new_content.c_str(), new_content.size());
+        {
+            std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+            visual_move_cursor(current_line.size(), 0);
+            write(STDOUT_FILENO, "\x1b[J", 3); // J (Erase in Display) with 0 = clear to end of screen
+            
+            if (!new_content.empty()) {
+                write(STDOUT_FILENO, new_content.c_str(), new_content.size());
+            }
         }
         
         // Update internal state - shell will see this when Enter is pressed
@@ -2487,8 +2590,9 @@ namespace dais::core {
      *   for search/scroll functionality, avoiding a complex TUI implementation.
      */
     void Engine::handle_db_command(const std::string& query) {
+        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
         if (query.empty()) {
-            std::cout << "\r\n[" << handlers::Theme::UNIT << "DB Usage" << handlers::Theme::RESET 
+            std::cout << "[" << handlers::Theme::UNIT << "DB Usage" << handlers::Theme::RESET 
                       << "] :db " << handlers::Theme::STRUCTURE << "<" << handlers::Theme::UNIT << "sql_query" << handlers::Theme::STRUCTURE << ">" << handlers::Theme::RESET 
                       << " OR :db " << handlers::Theme::STRUCTURE << "<" << handlers::Theme::UNIT << "saved_query_name" << handlers::Theme::STRUCTURE << ">\r\n" << std::flush;
             return;
@@ -2581,7 +2685,7 @@ namespace dais::core {
 
             if (status == "error") {
                 std::string msg = result_obj["message"].cast<std::string>();
-                std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
                           << msg << "\r\n" << std::flush;
                 return;
             }
@@ -2646,7 +2750,7 @@ namespace dais::core {
             }
             
         } catch (const std::exception& e) {
-            std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+            std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
                       << "Python/Engine Error: " << e.what() << "\r\n" << std::flush;
         }
     }
@@ -2769,6 +2873,7 @@ namespace dais::core {
      */
     void Engine::visual_move_cursor(int old_pos, int new_pos) {
         if (old_pos == new_pos) return;
+        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
 
         int width = terminal_cols_.load();
         if (width <= 0) width = 80;
@@ -2798,7 +2903,8 @@ namespace dais::core {
      * Captures the visual prompt width once when a command session starts.
      */
     void Engine::ensure_visual_mode_init(int offset_already_in_buffer) {
-        if (!was_visual_mode_) {
+        if (was_visual_mode_) return;
+        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
             std::lock_guard<std::mutex> lock(prompt_mutex_);
             // 1. Calculate the total visual length of the current line (from shell echo)
             int shelf_width = calculate_visual_length(prompt_buffer_);
@@ -2812,7 +2918,6 @@ namespace dais::core {
                 initial_prompt_cols_ += 4; // Length of "[-] "
             }
             was_visual_mode_ = true;
-        }
     }
 }
 
