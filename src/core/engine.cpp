@@ -2343,8 +2343,9 @@ namespace dais::core {
      */
     void Engine::handle_db_command(const std::string& query) {
         if (query.empty()) {
-            std::cout << "\r\n[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
-                      << "] Usage: :db <sql_query> OR :db <saved_query_name>\r\n" << std::flush;
+            std::cout << "\r\n[" << handlers::Theme::UNIT << "DB Usage" << handlers::Theme::RESET 
+                      << "] :db " << handlers::Theme::STRUCTURE << "<" << handlers::Theme::UNIT << "sql_query" << handlers::Theme::STRUCTURE << ">" << handlers::Theme::RESET 
+                      << " OR :db " << handlers::Theme::STRUCTURE << "<" << handlers::Theme::UNIT << "saved_query_name" << handlers::Theme::STRUCTURE << ">\r\n" << std::flush;
             return;
         }
 
@@ -2394,8 +2395,8 @@ namespace dais::core {
                 // Heuristic cleanup of process name if it's just "ssh"
                 if (is_remote_session_) location = "REMOTE"; 
 
-                std::cout << "\r\n[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
-                          << "] Missing package '" << pkg << "' on " << location << ". Install now"
+                std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "Missing Package" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET 
+                          << " Package '" << handlers::Theme::VALUE << pkg << handlers::Theme::RESET << "' on " << handlers::Theme::UNIT << location << handlers::Theme::RESET << ". Install now"
                           << (is_remote_session_ ? " (user-scope)" : "") << "? (y/N) " << std::flush;
                 
                 // Read single char response (assuming raw mode)
@@ -2435,8 +2436,8 @@ namespace dais::core {
 
             if (status == "error") {
                 std::string msg = result_obj["message"].cast<std::string>();
-                std::cout << "\r\n[" << handlers::Theme::ERROR << "DB" << handlers::Theme::RESET 
-                          << "] " << msg << "\r\n" << std::flush;
+                std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                          << msg << "\r\n" << std::flush;
                 return;
             }
 
@@ -2500,8 +2501,8 @@ namespace dais::core {
             }
             
         } catch (const std::exception& e) {
-            std::cout << "\r\n[" << handlers::Theme::ERROR << "DB" << handlers::Theme::RESET 
-                      << "] Python/Engine Error: " << e.what() << "\r\n" << std::flush;
+            std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::ERROR << "DB Error" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                      << "Python/Engine Error: " << e.what() << "\r\n" << std::flush;
         }
     }
 
