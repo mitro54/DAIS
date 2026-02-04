@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-01-28 00:35:36</td>
+            <td class="headerValue">2026-02-04 18:56:14</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
@@ -102,8 +102,8 @@
 <span id="L24"><span class="lineNum">      24</span>                 :             :         void resize(int rows, int cols, bool show_logo);</span>
 <span id="L25"><span class="lineNum">      25</span>                 :             : </span>
 <span id="L26"><span class="lineNum">      26</span>                 :             :         // Getters</span>
-<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC tlaBgGNC">         110 :         [[nodiscard]] int get_master_fd() const { return master_fd_; }</span></span>
-<span id="L28"><span class="lineNum">      28</span>                 :<span class="tlaGNC">          41 :         [[nodiscard]] pid_t get_child_pid() const { return child_pid_; }</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC tlaBgGNC">         111 :         [[nodiscard]] int get_master_fd() const { return master_fd_; }</span></span>
+<span id="L28"><span class="lineNum">      28</span>                 :<span class="tlaGNC">          38 :         [[nodiscard]] pid_t get_child_pid() const { return child_pid_; }</span></span>
 <span id="L29"><span class="lineNum">      29</span>                 :             :         </span>
 <span id="L30"><span class="lineNum">      30</span>                 :             :         /**</span>
 <span id="L31"><span class="lineNum">      31</span>                 :             :          * @brief Checks if the shell is idle (at prompt, no foreground child).</span>
@@ -111,11 +111,11 @@
 <span id="L33"><span class="lineNum">      33</span>                 :             :          * If it matches the shell's PID, no child (vim, python, etc.) is running.</span>
 <span id="L34"><span class="lineNum">      34</span>                 :             :          * @return true if shell is idle, false if a child process is in foreground</span>
 <span id="L35"><span class="lineNum">      35</span>                 :             :          */</span>
-<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">        1529 :         [[nodiscard]] bool is_shell_idle() const {</span></span>
-<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">        1529 :             pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">        2248 :         [[nodiscard]] bool is_shell_idle() const {</span></span>
+<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">        2248 :             pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
 <span id="L38"><span class="lineNum">      38</span>                 :             :             // If fg_pgrp matches the shell's process group, shell is idle</span>
 <span id="L39"><span class="lineNum">      39</span>                 :             :             // getpgid(child_pid_) gets the shell's process group</span>
-<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">        1529 :             return fg_pgrp == getpgid(child_pid_);</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">        2248 :             return fg_pgrp == getpgid(child_pid_);</span></span>
 <span id="L41"><span class="lineNum">      41</span>                 :             :         }</span>
 <span id="L42"><span class="lineNum">      42</span>                 :             : </span>
 <span id="L43"><span class="lineNum">      43</span>                 :             :         /**</span>
@@ -124,16 +124,22 @@
 <span id="L46"><span class="lineNum">      46</span>                 :             :          */</span>
 <span id="L47"><span class="lineNum">      47</span>                 :             :         std::string get_foreground_process_name();</span>
 <span id="L48"><span class="lineNum">      48</span>                 :             : </span>
-<span id="L49"><span class="lineNum">      49</span>                 :             :     private:</span>
-<span id="L50"><span class="lineNum">      50</span>                 :             :         int master_fd_;</span>
-<span id="L51"><span class="lineNum">      51</span>                 :             :         pid_t child_pid_;</span>
-<span id="L52"><span class="lineNum">      52</span>                 :             :         struct termios orig_term_; // To restore terminal settings on exit</span>
-<span id="L53"><span class="lineNum">      53</span>                 :             : </span>
-<span id="L54"><span class="lineNum">      54</span>                 :             :         void set_raw_mode();</span>
-<span id="L55"><span class="lineNum">      55</span>                 :             :         void restore_term_mode();</span>
-<span id="L56"><span class="lineNum">      56</span>                 :             :     };</span>
-<span id="L57"><span class="lineNum">      57</span>                 :             : </span>
-<span id="L58"><span class="lineNum">      58</span>                 :             : }</span>
+<span id="L49"><span class="lineNum">      49</span>                 :             :         /**</span>
+<span id="L50"><span class="lineNum">      50</span>                 :             :          * @brief Retrieves the PID of the foreground process.</span>
+<span id="L51"><span class="lineNum">      51</span>                 :             :          * Useful for tracking session continuity (Sticky Sessions).</span>
+<span id="L52"><span class="lineNum">      52</span>                 :             :          */</span>
+<span id="L53"><span class="lineNum">      53</span>                 :             :         int get_foreground_process_pid();</span>
+<span id="L54"><span class="lineNum">      54</span>                 :             : </span>
+<span id="L55"><span class="lineNum">      55</span>                 :             :     private:</span>
+<span id="L56"><span class="lineNum">      56</span>                 :             :         int master_fd_;</span>
+<span id="L57"><span class="lineNum">      57</span>                 :             :         pid_t child_pid_;</span>
+<span id="L58"><span class="lineNum">      58</span>                 :             :         struct termios orig_term_; // To restore terminal settings on exit</span>
+<span id="L59"><span class="lineNum">      59</span>                 :             : </span>
+<span id="L60"><span class="lineNum">      60</span>                 :             :         void set_raw_mode();</span>
+<span id="L61"><span class="lineNum">      61</span>                 :             :         void restore_term_mode();</span>
+<span id="L62"><span class="lineNum">      62</span>                 :             :     };</span>
+<span id="L63"><span class="lineNum">      63</span>                 :             : </span>
+<span id="L64"><span class="lineNum">      64</span>                 :             : }</span>
         </pre>
               </td>
             </tr>
