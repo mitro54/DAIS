@@ -300,6 +300,7 @@ namespace dais::core {
         std::atomic<bool> pending_remote_deployment_{false};
         std::atomic<bool> ready_to_deploy_{false};
         std::atomic<bool> in_alt_screen_{false};
+        std::atomic<bool> synced_with_shell_{false}; ///< True if cmd_accumulator matches shell line
         
         /**
          * @brief Executes a command on the remote shell and captures output.

@@ -1232,6 +1232,7 @@ namespace dais::core {
                         cmd_accumulator.clear();
                         cursor_pos_ = 0;
                         was_visual_mode_ = false;
+                        synced_with_shell_ = false; // New command buffer is empty -> Not synced with whatever shell has
                         tab_used_ = false;  // Reset for next command
                         data_to_write += c;
                     }
@@ -1261,6 +1262,7 @@ namespace dais::core {
                                     // Restore cursor
                                     visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
                                 }
+                                synced_with_shell_ = true; // Recovered from shell -> Synced
                             }
                         }
 
@@ -1269,7 +1271,7 @@ namespace dais::core {
 
                         // Check if we are in a DAIS command (: commands stay visual)
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                        bool visual_mode = !in_alt_screen_ && (
+                        bool visual_mode = !in_alt_screen_ && !synced_with_shell_ && (
                                            (pty_.is_shell_idle() && starts_with_colon) || 
                                            (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                            );
@@ -1319,6 +1321,7 @@ namespace dais::core {
                                     // Restore cursor
                                     visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
                                 }
+                                synced_with_shell_ = true; // Recovered from shell -> Synced
                             }
                         }
 
@@ -1339,7 +1342,8 @@ namespace dais::core {
                         
                         // Visual-only mode: DAIS commands (:) only
                         // GUARD: Disable visual mode in alternate screen (Vim) so keys pass through logic
-                        bool visual_mode = !in_alt_screen_ && (
+                        // GUARD: Disable visual mode if command is SYNCED with shell (e.g. from history recall)
+                        bool visual_mode = !in_alt_screen_ && !synced_with_shell_ && (
                                            (pty_.is_shell_idle() && starts_with_colon) || 
                                            (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                            );
@@ -2595,6 +2599,7 @@ namespace dais::core {
         
         // 3. Reset flag - shell now has content
         history_navigated_ = false;
+        synced_with_shell_ = true; // We just synced, so shell matches local accumulator
         return true;
     }
 
