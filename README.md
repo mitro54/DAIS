@@ -121,6 +121,7 @@ These flags can be placed anywhere in the command:
 | `:history clear` | Clear command history |
 | `:help` | Show all available commands |
 | `:q` or `:exit` | Exit DAIS |
+| `:agent-status` | Check agent status in remote sessions |
 
 ### Command History
 DAIS maintains its own file-based history (~/.dais_history) separate from your shell's history.
