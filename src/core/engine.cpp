@@ -1950,6 +1950,41 @@ namespace dais::core {
                         if (cursor >= n) cursor -= n;
                         else cursor = 0;
                     }
+                    else if (c == 'P') {
+                        // DCH - Delete Character (Delete n chars at cursor, shift left)
+                        int n = 1;
+                        try { if (!csi_seq.empty()) n = std::stoi(csi_seq); } catch(...) {}
+                        if (cursor < clean_line.size()) {
+                            if (cursor + n >= clean_line.size()) {
+                                clean_line.resize(cursor);
+                            } else {
+                                clean_line.erase(cursor, n);
+                            }
+                        }
+                    }
+                    else if (c == '@') {
+                        // ICH - Insert Character (Insert n spaces at cursor, shift right)
+                        int n = 1;
+                        try { if (!csi_seq.empty()) n = std::stoi(csi_seq); } catch(...) {}
+                        if (cursor <= clean_line.size()) {
+                            clean_line.insert(cursor, n, ' ');
+                        }
+                    }
+                    else if (c == 'J') {
+                        // ED - Erase in Display
+                        // 0: Cursor to end (same as K for single line logic, but technically clears below too)
+                        // 1: Start to cursor
+                        // 2: Entire screen
+                        if (csi_seq.empty() || csi_seq == "0") {
+                            if (cursor < clean_line.size()) clean_line.resize(cursor);
+                        } else if (csi_seq == "1") {
+                             if (cursor < clean_line.size()) {
+                                 for (size_t k = 0; k <= cursor && k < clean_line.size(); ++k) clean_line[k] = ' ';
+                             }
+                        } else if (csi_seq == "2") {
+                            clean_line.clear();
+                        }
+                    }
 
                     state = TEXT; 
                 } else {
