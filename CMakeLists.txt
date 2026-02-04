@@ -60,6 +60,11 @@ add_custom_target(BuildAgents DEPENDS ${CMAKE_SOURCE_DIR}/include/core/dais_agen
 add_executable(DAIS 
     src/main.cpp
     src/core/engine.cpp
+    src/core/command_handlers.cpp
+    src/core/config_loader.cpp
+    src/core/engine_remote.cpp
+    src/core/engine_history.cpp
+    src/core/engine_db.cpp
     src/core/session.cpp
     # If you add a new file, just add a new line here
 )
