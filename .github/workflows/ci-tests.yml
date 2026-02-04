@@ -130,6 +130,8 @@ jobs:
             pip3 install pexpect --break-system-packages 2>/dev/null || pip3 install pexpect
             python3 tests/functional/test_commands.py
             python3 tests/functional/test_db_commands.py
+            python3 tests/functional/test_config_loader.py
+            python3 tests/functional/test_db_advanced.py
           "
 
       - name: Run LS tests with bash
@@ -185,6 +187,8 @@ jobs:
           pip3 install pexpect --break-system-packages || pip3 install pexpect
           python3 tests/functional/test_commands.py
           python3 tests/functional/test_db_commands.py
+          python3 tests/functional/test_config_loader.py
+          python3 tests/functional/test_db_advanced.py
 
       - name: Run LS tests with bash
         run: |

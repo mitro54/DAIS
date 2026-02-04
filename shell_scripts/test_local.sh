@@ -62,7 +62,15 @@ echo ">>> Running Interactive CLI Tests..."
 python3 tests/functional/test_commands.py
 CLI_EXIT=$?
 
-TEST_EXIT_CODE=$((LOGIC_EXIT + CLI_EXIT))
+echo ">>> Running Config Loader Tests..."
+python3 tests/functional/test_config_loader.py
+CONFIG_EXIT=$?
+
+echo ">>> Running Advanced DB Tests..."
+python3 tests/functional/test_db_advanced.py
+ADV_DB_EXIT=$?
+
+TEST_EXIT_CODE=$((LOGIC_EXIT + CLI_EXIT + CONFIG_EXIT + ADV_DB_EXIT))
 
 echo ">>> [4/4] Cleaning up..."
 docker rm -f dais-pg-local dais-my-local > /dev/null

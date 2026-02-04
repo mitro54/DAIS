@@ -183,4 +183,8 @@ namespace dais::core {
 #endif
         return "";
     }
+
+    int PTYSession::get_foreground_process_pid() {
+        return tcgetpgrp(master_fd_);
+    }
 }

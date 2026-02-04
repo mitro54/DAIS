@@ -46,6 +46,12 @@ namespace dais::core {
          */
         std::string get_foreground_process_name();
 
+        /**
+         * @brief Retrieves the PID of the foreground process.
+         * Useful for tracking session continuity (Sticky Sessions).
+         */
+        int get_foreground_process_pid();
+
     private:
         int master_fd_;
         pid_t child_pid_;

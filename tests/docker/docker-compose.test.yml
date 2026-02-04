@@ -1,0 +1,33 @@
+services:
+  # 1. Standard x86_64 Environment
+  x86:
+    build:
+      context: .
+      dockerfile: ssh_test.Dockerfile
+    platform: linux/amd64
+    ports:
+      - "2222:22"
+    hostname: box-x86
+    container_name: dais-test-x86
+
+  # 2. ARM64 Environment (Raspberry Pi 4/5, AWS Graviton)
+  arm64:
+    build:
+      context: .
+      dockerfile: ssh_test.Dockerfile
+    platform: linux/arm64
+    ports:
+      - "2223:22"
+    hostname: box-arm64
+    container_name: dais-test-arm64
+
+  # 3. ARMv7 Environment (Raspberry Pi 2/3, Older IoT)
+  armv7:
+    build:
+      context: .
+      dockerfile: ssh_test.Dockerfile
+    platform: linux/arm/v7
+    ports:
+      - "2224:22"
+    hostname: box-armv7
+    container_name: dais-test-armv7

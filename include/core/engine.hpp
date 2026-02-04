@@ -74,6 +74,10 @@ namespace dais::core {
 
     class Engine {
     public:
+        // --- Input Tracking for Paste/Fast Type ---
+        std::string input_accumulator_;
+        std::mutex input_mutex_;
+        
         // --- CONSTANTS ---
         static constexpr char kCtrlU = '\x15';     ///< Clear Line
         static constexpr char kCtrlC = '\x03';     ///< Interrupt
@@ -112,6 +116,7 @@ namespace dais::core {
         
         // Helper to allow main.cpp to resize window
         void resize_window(int rows, int cols) {
+            terminal_cols_ = cols;
             pty_.resize(rows, cols, config_.show_logo);
         }
 
@@ -155,10 +160,19 @@ namespace dais::core {
          * @param raw_buffer The raw PTY output buffer containing prompts, echoes, and control codes.
          * @return std::string The cleaned, reconstructed command string.
          */
-        std::string recover_cmd_from_buffer(const std::string& raw_buffer);
+        
+        /**
+         * @brief Execute DAIS internal commands (prefixed with ':')
+         * 
+         * @param cmd The cleaned command string (e.g., ":ls", ":db select * from t")
+         * @param from_shell_echo If true, command was recovered from shell's echo output
+         *        (e.g., history recall). Prevents double-echoing of the command.
+         */
+        void execute_internal_command(const std::string& cmd, bool from_shell_echo = false);
 
         // --- THREAD SAFETY ---
         std::mutex state_mutex_;
+        mutable std::recursive_mutex terminal_mutex_;    ///< Synchronizes all writes to STDOUT_FILENO (Recursive for nested UI calls)
 
         // --- PASS-THROUGH MODE STATE (only accessed from forward_shell_output thread) ---
         mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
@@ -215,13 +229,44 @@ namespace dais::core {
         bool history_navigated_ = false;            ///< True if arrow navigation was used
         bool tab_used_ = false;                      ///< True if Tab was used (accumulator unreliable)
         bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
+        size_t cursor_pos_ = 0;                     ///< Index in input_accumulator_ for editable prompt
+        std::atomic<int> terminal_cols_{80};        ///< Current terminal width
+        int initial_prompt_cols_ = 0;              ///< Prompt width when visual mode started
+        bool was_visual_mode_ = false;              ///< For detecting entry into visual mode
+        bool bracketed_paste_active_ = false;       ///< True if we are inside a \e[200~ ... \e[201~ block
+        std::string paste_accumulator_;             ///< Local buffer for pasted text
         std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
         
+        bool is_internal_command(const std::string& line); ///< Helper to identify :commands
+        void process_paste_block();                 ///< Handles dispatching of buffered paste data
+        void visual_move_cursor(int old_pos, int new_pos); ///< Multi-line aware cursor movement
+        int calculate_visual_length(const std::string& buffer); ///< Helper to get visual width of string
+        void ensure_visual_mode_init(int offset_already_in_buffer = 0); ///< Safeguard for prompt width tracking
+        
         void load_history();                        ///< Load from file on startup
         void save_history_entry(const std::string& cmd);  ///< Append to file
+
+        struct CursorRecovery {
+            std::string command;
+            int cursor_idx;
+        };
+        CursorRecovery recover_cmd_from_buffer(const std::string& buffer); ///< Helper to recover command and cursor
         void show_history(const std::string& args); ///< Handle :history command
         void navigate_history(int direction, std::string& current_line); ///< Arrow key nav
+        
+        /**
+         * @brief Syncs visual-only history content to the shell.
+         * 
+         * When user navigates DAIS history (Up/Down), changes are visual-only.
+         * Before the shell can process edits (arrows, backspace, typing), we must
+         * sync the content. This helper centralizes that logic.
+         * 
+         * @param accumulator The current command buffer to sync
+         * @return true if sync was performed, false if not needed
+         */
+        bool sync_history_to_shell(std::string& accumulator);
+
         
         /**
          * @brief Handles the execution of the :db command module.
@@ -240,6 +285,8 @@ namespace dais::core {
         void check_remote_session();           ///< Updates is_remote_session_ based on FG process
         void deploy_remote_agent();            ///< Injects binary if missing
 
+        int remote_session_pid_ = -1;          ///< PID of the current SSH process (for sticky detection)
+
         // =====================================================================
         // OUTPUT CAPTURING (For Remote Commands)
         // =====================================================================
@@ -248,6 +295,15 @@ namespace dais::core {
         std::string capture_buffer_;
         std::mutex capture_mutex_;
         std::condition_variable capture_cv_;
+        
+        // --- AUTO-DEPLOYMENT STATE ---
+        std::atomic<bool> pending_remote_deployment_{false};
+        std::atomic<bool> ready_to_deploy_{false};
+        std::atomic<bool> in_alt_screen_{false};
+        std::atomic<bool> synced_with_shell_{false};  ///< Prevents race conditions by tracking if local buffer matches shell input
+        std::atomic<int> cached_prompt_width_{-1};    ///< Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers
+        bool intentionally_cleared_{false};           ///< Prevents "ghost" history adoption when user explicitly clears the line
+        std::string last_remote_prompt_;              ///< Stores the prompt swallowed by execute_remote_command for later restoration
         
         /**
          * @brief Executes a command on the remote shell and captures output.
