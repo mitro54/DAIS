@@ -813,6 +813,10 @@ namespace dais::core {
 
                                 // Sync history content to shell before cursor movement
                                 sync_history_to_shell(cmd_accumulator);
+                                
+                                // Track cursor position even after sync so edits go to correct place
+                                if (arrow == 'D' && cursor_pos_ > 0) cursor_pos_--;
+                                else if (arrow == 'C' && cursor_pos_ < cmd_accumulator.size()) cursor_pos_++;
                             }
                         }
                         
@@ -2473,10 +2477,9 @@ namespace dais::core {
             next_content = history_stash_;
         }
 
-        bool into_visual = next_content.starts_with(":");
-        if (into_visual) {
-            ensure_visual_mode_init(current_line.size());
-        }
+        // Always initialize visual mode coordinates for history navigation
+        // Without this, visual_move_cursor miscalculates and overwrites the prompt
+        ensure_visual_mode_init(current_line.size());
         
         // Stash current line when first navigating up from the end
         if (history_index_ == command_history_.size() && direction < 0) {
