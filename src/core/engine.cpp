@@ -946,7 +946,9 @@ namespace dais::core {
                         std::string clean = cmd_accumulator;
                         bool from_shell_echo = false;
 
-                        if (!pty_.is_shell_idle() && is_remote_session_ && !in_alt_screen_) {
+                        // Recover if we're in a remote session OR if we used tab completion (which invalidates local buffer)
+                        // Note: Local sessions usually have pty_.is_shell_idle() == true at this point, but we still need recovery if tab was used.
+                        if (!in_alt_screen_ && ( (is_remote_session_ && !pty_.is_shell_idle()) || tab_used_ )) {
                             // Recover command from shell's visual output (handles history navigation)
                             std::string recovered;
                             {
@@ -972,6 +974,12 @@ namespace dais::core {
                                 } else if (!local_input.empty() && local_input.find(':') != std::string::npos) {
                                     clean = local_input;
                                 }
+                            }
+                            
+                            // CRITICAL: Update the accumulator so that history saving (later) uses the full recovered command
+                            // (e.g. "cd /mnt/..." instead of just "cd /m")
+                            if (!clean.empty() && clean != cmd_accumulator) {
+                                cmd_accumulator = clean;
                             }
                         }
 
@@ -1018,6 +1026,7 @@ namespace dais::core {
                         // Sync history content to shell before Enter execution
                         sync_history_to_shell(cmd_accumulator);
                         history_navigated_ = false;  // Always reset on Enter
+                        tab_used_ = false;           // Reset tab tracking
                         
                         // --- STATE TRANSITION: IDLE -> RUNNING ---
                         shell_state_ = ShellState::RUNNING;
