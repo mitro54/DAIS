@@ -300,7 +300,10 @@ namespace dais::core {
         std::atomic<bool> pending_remote_deployment_{false};
         std::atomic<bool> ready_to_deploy_{false};
         std::atomic<bool> in_alt_screen_{false};
-        std::atomic<bool> synced_with_shell_{false}; ///< True if cmd_accumulator matches shell line
+        std::atomic<bool> synced_with_shell_{false};  ///< Prevents race conditions by tracking if local buffer matches shell input
+        std::atomic<int> cached_prompt_width_{-1};    ///< Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers
+        bool intentionally_cleared_{false};           ///< Prevents "ghost" history adoption when user explicitly clears the line
+        std::string last_remote_prompt_;              ///< Stores the prompt swallowed by execute_remote_command for later restoration
         
         /**
          * @brief Executes a command on the remote shell and captures output.

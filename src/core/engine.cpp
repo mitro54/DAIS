@@ -643,6 +643,8 @@ namespace dais::core {
                             // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
                             if ((pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
                                 shell_state_ = ShellState::IDLE;
+                                // CACHE: Snapshot the validated prompt width
+                                cached_prompt_width_ = calculate_visual_length(prompt_buffer_);
                             }
                             break;
                         }
@@ -968,7 +970,17 @@ namespace dais::core {
 
                             // Choose best available command source
                             if (clean.empty() || clean.find('\t') != std::string::npos || tab_used_) {
-                                if (!recovered.empty()) {
+                                bool kept_accumulator = false;
+                                
+                                // CRITICAL: For internal commands (:), NEVER use recovered remote output
+                                // because they are visual-only and not echoed by the shell.
+                                // NOTE: We check 'clean' (captured before input_accumulator_ was cleared at line 967)
+                                // not 'cmd_accumulator' (which is now empty).
+                                if (!clean.empty() && clean.starts_with(":")) {
+                                    // clean already has the user's edited command - keep it
+                                    kept_accumulator = true;
+                                }
+                                else if (!recovered.empty()) {
                                     clean = recovered;
                                     from_shell_echo = true; // Shell already displayed this command
                                 } else if (!local_input.empty() && local_input.find(':') != std::string::npos) {
@@ -1238,10 +1250,19 @@ namespace dais::core {
                     }
                     // Handle Backspace
                     else if (c == 127 || c == '\b') {
-                        // ADOPTION: If cmd_accumulator is empty, we might be editing a command 
-                        // pulled from the shell's native history (Up-Arrow). 
-                        // We try to recover it so we can keep edits within DAIS.
-                        if (cmd_accumulator.empty()) {
+                        // ---------------------------------------------------------
+                        // HISTORY RECOVERY (ADOPTION)
+                        // ---------------------------------------------------------
+                        // When using Up-Arrow (shell history), the shell echoes
+                        // text that DAIS didn't process. We must scrape the buffer
+                        // and "adopt" it into cmd_accumulator to allow local editing.
+                        //
+                        // Guards:
+                        // 1. !was_visual_mode_: User just cleared an internal command.
+                        //    Do NOT adopt the ghost output of that command.
+                        // 2. !intentionally_cleared_: User explicitly deleted the line.
+                        //    Do NOT adopt the result of that deletion.
+                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
                             CursorRecovery recovery;
                             {
                                 std::lock_guard<std::mutex> lock(prompt_mutex_);
@@ -1262,7 +1283,11 @@ namespace dais::core {
                                     // Restore cursor
                                     visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
                                 }
-                                synced_with_shell_ = true; // Recovered from shell -> Synced
+                                // Only mark synced for non-internal commands
+                                // `:` commands are visual-only and never synced to shell
+                                if (!cmd_accumulator.starts_with(":")) {
+                                    synced_with_shell_ = true;
+                                }
                             }
                         }
 
@@ -1290,16 +1315,34 @@ namespace dais::core {
                             } else {
                                 data_to_write += c;
                             }
-                        } else if (!visual_mode) {
-                            // If empty and not in a special DAIS mode, pass through to shell
+                        } else if (!visual_mode && !was_visual_mode_) {
+                            // -----------------------------------------------------
+                            // PROMPT PASSTHROUGH
+                            // -----------------------------------------------------
+                            // For normal commands (ls, cat), we revert to standard
+                            // shell behavior. If the buffer is empty, we pass the 
+                            // Backspace to the shell, allowing the user to wipe the
+                            // prompt line if desired.
                             data_to_write += c;
+                        }
+                        // else: user cleared a command - don't erase prompt
+                        
+                        // Track intentional clear for adoption prevention
+                        if (cmd_accumulator.empty()) {
+                            intentionally_cleared_ = true;
                         }
                     }
                     // Regular character
                     else if (std::isprint(static_cast<unsigned char>(c))) {
                         // ADOPTION: Same as backspace, we try to adopt history commands
                         // before the first new character "leaks" to the shell.
-                        if (cmd_accumulator.empty()) {
+                        // ---------------------------------------------------------
+                        // CHARACTER ADOPTION GUARD
+                        // ---------------------------------------------------------
+                        // Before letting a new character "leak" to the shell, check
+                        // if we should first adopt any existing shell history (ghosts).
+                        // Guards same as above (don't adopt if cleared or visual).
+                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
                             CursorRecovery recovery;
                             {
                                 std::lock_guard<std::mutex> lock(prompt_mutex_);
@@ -1321,7 +1364,10 @@ namespace dais::core {
                                     // Restore cursor
                                     visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
                                 }
-                                synced_with_shell_ = true; // Recovered from shell -> Synced
+                                // Only mark synced for non-internal commands
+                                if (!cmd_accumulator.starts_with(":")) {
+                                    synced_with_shell_ = true;
+                                }
                             }
                         }
 
@@ -1349,6 +1395,10 @@ namespace dais::core {
                                            );
                         
                         if (visual_mode) {
+                            // New internal commands start with uninitialized cursor state.
+                            // We force initialization (offset 0) to prevent cursor jumping to right.
+                            ensure_visual_mode_init(0);
+                            
                             std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
                             int old_cursor = cursor_pos_ - 1; // Position before char insertion
                             std::string tail = cmd_accumulator.substr(cursor_pos_);
@@ -1360,6 +1410,10 @@ namespace dais::core {
                         } else {
                             data_to_write += c;
                         }
+                        
+                        // Update sticky state for next iteration (only SET, never reset until Enter)
+                        if (visual_mode) was_visual_mode_ = true;
+                        intentionally_cleared_ = false; // Typing indicates intent to start new command
                     }
                     // Non-printable (control chars, etc.) - always pass through
                     else {
@@ -2099,6 +2153,8 @@ namespace dais::core {
         // Only run if legitimate
         if (!pty_.is_shell_idle() && !is_remote_session_) return "";
 
+        last_remote_prompt_.clear(); // Clear previous prompt
+        
         // 1. Prepare Capture
         {
             std::lock_guard<std::mutex> lock(capture_mutex_);
@@ -2170,6 +2226,37 @@ namespace dais::core {
 
         // 4. Disable Capture
         capture_mode_ = false;
+
+        if (finished && !capture_buffer_.empty()) {
+            // FIX: The prompt following the sentinel was swallowed by the capture logic (goto skip_output)
+            // We must manually restore it to STDOUT and prompt_buffer_ so visual logic works.
+            size_t sent_pos = capture_buffer_.rfind(sentinel);
+            if (sent_pos != std::string::npos) {
+                size_t after_sentinel = sent_pos + sentinel.size();
+                if (after_sentinel < capture_buffer_.size()) {
+                    std::string prompt_part = capture_buffer_.substr(after_sentinel);
+                    if (!prompt_part.empty()) {
+                        // Store prompt to be printed at the correct time (after command output)
+                        last_remote_prompt_ = prompt_part;
+                        
+                        std::lock_guard<std::mutex> prompt_lock(prompt_mutex_);
+                        prompt_buffer_ += prompt_part;
+                        // Determine idle state from this prompt
+                        ShellState old_state = shell_state_; // Optimization check?
+                        // Recalculate idle state immediately
+                        for (const auto& p : config_.shell_prompts) {
+                            if (prompt_buffer_.size() >= p.size() && 
+                                prompt_buffer_.compare(prompt_buffer_.size() - p.size(), p.size(), p) == 0) {
+                                shell_state_ = ShellState::IDLE;
+                                // CACHE: Snapshot restored prompt width
+                                cached_prompt_width_ = calculate_visual_length(prompt_buffer_);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         if (!finished) {
             return ""; // Timeout
@@ -2511,7 +2598,9 @@ namespace dais::core {
     void Engine::navigate_history(int direction, std::string& current_line) {
         // SAFETY: Don't write anything if an app is running (vim/nano)
         // This check is belt-and-suspenders with the caller's check
-        if (!pty_.is_shell_idle()) return;
+        // SAFETY: Don't write anything if an app is running (vim/nano) in local mode.
+        // For remote sessions, we bypass this check because is_shell_idle() is false (ssh running).
+        if (!is_remote_session_ && !pty_.is_shell_idle()) return;
         
         if (command_history_.empty()) return;
 
@@ -2545,6 +2634,7 @@ namespace dais::core {
         }
         history_index_ = new_index;
         history_navigated_ = true;  // Mark that we've used history navigation
+        synced_with_shell_ = false; // Reset - new history item needs fresh sync state
         
         // Determine new content
         std::string new_content;
@@ -2734,6 +2824,11 @@ namespace dais::core {
                     pos += 2;
                 }
                 std::cout << formatted << "\r\n" << std::flush;
+                
+                // Print the prompt that was swallowed by execute_remote_command
+                if (is_remote_session_ && !last_remote_prompt_.empty()) {
+                    std::cout << last_remote_prompt_ << std::flush;
+                }
                 
             } else if (action == "page") {
                 // ACTION: Open in Pager (less)
@@ -2936,10 +3031,15 @@ namespace dais::core {
         std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
             std::lock_guard<std::mutex> lock(prompt_mutex_);
             // 1. Calculate the total visual length of the current line (from shell echo)
-            int shelf_width = calculate_visual_length(prompt_buffer_);
+            // Use cached width if available (bulletproof against dirty buffers)
+            if (cached_prompt_width_ >= 0) {
+                initial_prompt_cols_ = cached_prompt_width_;
+            } else {
+                int shelf_width = calculate_visual_length(prompt_buffer_);
+                // 2. Subtract any command characters ALREADY in prompt_buffer_
+                initial_prompt_cols_ = shelf_width - offset_already_in_buffer;
+            }
             
-            // 2. Subtract any command characters ALREADY in prompt_buffer_
-            initial_prompt_cols_ = shelf_width - offset_already_in_buffer;
             if (initial_prompt_cols_ < 0) initial_prompt_cols_ = 0;
 
             // Account for Logo if it was visually injected on the current line
