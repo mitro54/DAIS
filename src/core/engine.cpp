@@ -439,7 +439,8 @@ namespace dais::core {
                         
                         // Shell-Specific Logo Injection Strategy:
                         if (is_complex_shell_ && !is_fish_) {
-                            // Zsh: Delayed logo injection with ANSI escape sequence tracking.
+                            // Zsh: ANSI escape sequence tracking only, NO logo injection
+                            // Logo is rendered by the shell's prompt, not pass-through injection
                             // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
                             if (pass_through_esc_state_ == 1) {
                                 if (c == '[') pass_through_esc_state_ = 2;
@@ -454,14 +455,6 @@ namespace dais::core {
                                 pass_through_esc_state_ = 0;
                             } else if (c == kEsc) {
                                 pass_through_esc_state_ = 1;
-                            } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
-                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
-                                // Inject logo at line start when shell is idle (and NOT in vim)
-                                if (c >= 33 && c < 127) {
-                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
-                                    at_line_start_ = false;
-                                }
                             }
                         } else if (!is_complex_shell_) {
                             // Simple shells: inject immediately
@@ -608,8 +601,9 @@ namespace dais::core {
                     }
 
                     // --- VISUAL MODE ENTRY DETECTION ---
+                    // Fish: Skip visual mode entirely - Fish's prompt handling is incompatible
                     bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                    bool visual_mode = !in_alt_screen_ && (
+                    bool visual_mode = !is_fish_ && !in_alt_screen_ && (
                                        (pty_.is_shell_idle() && starts_with_colon) || 
                                        (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                        );
@@ -649,6 +643,7 @@ namespace dais::core {
                             bool internal_mode = cmd_accumulator.starts_with(":");
                             
                             if ((arrow == 'A' || arrow == 'B') && 
+                                !is_fish_ &&  // Fish handles its own history
                                 (pty_.is_shell_idle() || (is_remote_session_ && internal_mode)) && 
                                 elapsed > 200) {
                                 // Safe to intercept for DAIS history
@@ -671,7 +666,7 @@ namespace dais::core {
                             // If user presses Left (D) or Right (C), handle based on mode.
                             if (arrow == 'C' || arrow == 'D') {
                                 bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                                bool visual_mode = !in_alt_screen_ && (
+                                bool visual_mode = !is_fish_ && !in_alt_screen_ && (
                                                    (pty_.is_shell_idle() && starts_with_colon) || 
                                                    (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                                    );
@@ -1169,8 +1164,9 @@ namespace dais::core {
                         sync_history_to_shell(cmd_accumulator);
 
                         // Check if we are in a DAIS command (: commands stay visual)
+                        // Fish: Skip visual mode - Fish handles display differently
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                        bool visual_mode = !in_alt_screen_ && !synced_with_shell_ && (
+                        bool visual_mode = !is_fish_ && !in_alt_screen_ && !synced_with_shell_ && (
                                            (pty_.is_shell_idle() && starts_with_colon) || 
                                            (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                            );
@@ -1263,7 +1259,8 @@ namespace dais::core {
                         // Visual-only mode: DAIS commands (:) only
                         // GUARD: Disable visual mode in alternate screen (Vim) so keys pass through logic
                         // GUARD: Disable visual mode if command is SYNCED with shell (e.g. from history recall)
-                        bool visual_mode = !in_alt_screen_ && !synced_with_shell_ && (
+                        // GUARD: Fish disabled - its prompt handling is incompatible with DAIS visual mode
+                        bool visual_mode = !is_fish_ && !in_alt_screen_ && !synced_with_shell_ && (
                                            (pty_.is_shell_idle() && starts_with_colon) || 
                                            (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
                                            );
@@ -1387,8 +1384,18 @@ namespace dais::core {
         std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
 
         // Echo command only if user typed it fresh (not from shell history recall)
-        if (!from_shell_echo) {
-            std::cout << clean << "\r\n" << std::flush;
+        // Fish: Just print newline - Fish handles its own command display, we only need separation
+        if (is_fish_) {
+            std::cout << "\r\n" << std::flush;
+        } else if (!from_shell_echo) {
+            // ZSH: Add logo for DAIS internal commands since pass-through injection is disabled
+            // This is the only place ZSH gets logos for :commands
+            if (is_complex_shell_ && config_.show_logo) {
+                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                std::cout << logo_str << clean << "\r\n" << std::flush;
+            } else {
+                std::cout << clean << "\r\n" << std::flush;
+            }
         } else {
             // Shell already echoed command - just print newline to separate from output
             std::cout << "\r\n" << std::flush;

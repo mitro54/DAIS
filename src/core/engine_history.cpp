@@ -217,7 +217,11 @@ namespace dais::core {
         }
         
         // Visual Cleanup: Move cursor left to start of command
-        std::cout << "\x1b[" << accumulator.size() << "D\x1b[K" << std::flush;
+        // Fish-only: Skip these escape sequences - Fish's prompt repainting conflicts with them
+        if (!is_fish_) {
+            std::cout << "\x1b[" << accumulator.size() << "D\x1b[K" << std::flush;
+        }
+
         
         // Logical Injection: Kill line -> Send Text
         const char kill_line = kCtrlU;
