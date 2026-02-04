@@ -51,7 +51,9 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to a universal Python script if the specialized agent cannot run.
 - **Compatibility**:
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
-    - **Shell Support**: Tested on **Bash**, **Ash**, **Zsh**, and **Fish**
+    - **Shell Support**: 
+        - **Bash**, **Ash**, **Zsh**: Full support including DAIS visual history navigation and command editing in ssh & locally
+        - **Fish**: Native shell experience takes precedence (DAIS visual mode disabled to respect Fish's advanced autosuggestions; doesnt save DAIS commands to history)
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
     - **Robust CI**: Verified functional cross-platform (Ubuntu, macOS, Fedora).
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
