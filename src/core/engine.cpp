@@ -455,8 +455,9 @@ namespace dais::core {
                             } else if (c == kEsc) {
                                 pass_through_esc_state_ = 1;
                             } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
-                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
-                                // Inject logo at line start when shell is idle
+                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_ &&
+                                       !in_internal_command_) {
+                                // Inject logo at line start when shell is idle (skip during :commands)
                                 if (c >= 33 && c < 127) {
                                     std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
                                     write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
@@ -467,7 +468,8 @@ namespace dais::core {
                             // Simple shells: inject immediately
                             if (at_line_start_) {
                                 if (c != '\n' && c != '\r' && config_.show_logo && shell_state_ == ShellState::IDLE && 
-                                    (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                    (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_ &&
+                                    !in_internal_command_) {
                                     std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
                                     write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
                                     at_line_start_ = false;
@@ -1388,18 +1390,26 @@ namespace dais::core {
     // ═══════════════════════════════════════════════════════════════════════════
     void Engine::execute_internal_command(const std::string& clean, bool from_shell_echo) {
         if (clean.empty()) return;
+        
+        // Set flag to prevent pass-through logo injection during internal command
+        // Must be AFTER acquiring mutex to prevent race with forward_shell_output
         std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+        in_internal_command_ = true;
+        // RAII guard to ensure flag is cleared even on early returns
+        struct FlagGuard { std::atomic<bool>& f; ~FlagGuard() { f = false; } } guard{in_internal_command_};
 
         // Echo command only if user typed it fresh (not from shell history recall)
         // Fish: Just print newline - Fish handles its own command display
         // Other shells: Echo the command normally, pass-through handles logo injection
+        // Use write() instead of std::cout to avoid buffering issues on macOS
         if (is_fish_) {
-            std::cout << "\r\n" << std::flush;
+            write(STDOUT_FILENO, "\r\n", 2);
         } else if (!from_shell_echo) {
-            std::cout << clean << "\r\n" << std::flush;
+            std::string echo = clean + "\r\n";
+            write(STDOUT_FILENO, echo.c_str(), echo.size());
         } else {
             // Shell already echoed command - just print newline to separate from output
-            std::cout << "\r\n" << std::flush;
+            write(STDOUT_FILENO, "\r\n", 2);
         }
 
         // Persist to local history (skip remote sessions and :history itself to avoid loops)

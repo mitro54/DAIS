@@ -236,6 +236,7 @@ namespace dais::core {
         bool bracketed_paste_active_ = false;       ///< True if we are inside a \e[200~ ... \e[201~ block
         std::string paste_accumulator_;             ///< Local buffer for pasted text
         std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
+        std::atomic<bool> in_internal_command_{false}; ///< True during execute_internal_command (skip pass-through logo)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
         
         bool is_internal_command(const std::string& line); ///< Helper to identify :commands
