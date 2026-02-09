@@ -1406,9 +1406,6 @@ namespace dais::core {
         // We strip the trailing newline to prevent commitment.
         std::string block = paste_accumulator_;
         
-        // Check for remote session status immediately to ensure tracking logic is accurate
-        check_remote_session();
-
         // Remove carriage returns \r
         block.erase(std::remove(block.begin(), block.end(), '\r'), block.end());
         
@@ -1440,8 +1437,7 @@ namespace dais::core {
              write(pty_.get_master_fd(), block.c_str(), block.size());
              
              // Sync our local command tracker for remote session interception
-             // Trust ShellState::IDLE for all complex shells (Zsh/Fish/Remote)
-             if (pty_.is_shell_idle() || is_remote_session_ || shell_state_ == ShellState::IDLE) {
+             if (pty_.is_shell_idle() || is_remote_session_ || (is_fish_ && shell_state_ == ShellState::IDLE)) {
                 input_accumulator_ += block;
                 if (!block.starts_with(":")) {
                     synced_with_shell_ = true;
