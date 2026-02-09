@@ -413,9 +413,9 @@ namespace dais::core {
                     if (buffer_str.size() >= prompt.size() &&
                         buffer_str.find(prompt) != std::string::npos) {
                         
-                        // Logic update: in SSH, shell_state_ can be IDLE if we see a prompt
+                        // Logic update: in SSH or complex shells (Zsh/Fish), shell_state_ can be IDLE if we see a prompt
                         // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
-                        if ((pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                        if ((pty_.is_shell_idle() || is_remote_session_ || is_complex_shell_) && !in_alt_screen_) {
                             shell_state_ = ShellState::IDLE;
                             
                             // If we were waiting for login to finish, we are now ready!
@@ -504,13 +504,13 @@ namespace dais::core {
                         }
                         
                         // ALWAYS capture to prompt_buffer_ (printable AND control chars)
-                        // EXCEPTION: Don't store the newline or carriage return that just cleared or reset the line.
-                        // This keeps prompt_buffer_ pure visual text for retroactive line rewriting (\r).
-                        if (c != '\n' && c != '\r') { 
+                        // EXCEPTION: Don't store the newline that just cleared or reset the line.
+                        // We NOW allow \r so that recover_cmd_from_buffer can handle line redrawing.
+                        if (c != '\n') { 
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_ += c;
-                            if (prompt_buffer_.size() > 1024) {
-                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 1024);
+                            if (prompt_buffer_.size() > 2048) { // Increased for complex ANSI echoes
+                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 2048);
                             }
                         }    
                             // Startup Fix: Ensure first prompt gets logo
@@ -528,16 +528,21 @@ namespace dais::core {
                         }
                     
                         // --- PROMPT DETECTION: Set state to IDLE ---
-                        // Check if output ends with a known shell prompt
+                        // Check if output ends with a known shell prompt.
+                        // IMPORTANT: For complex shells (Fish/Zsh), prompts contain ANSI colors.
+                        // We must match against a recovered (stripped) line.
                         {
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
+                            CursorRecovery recovery = recover_cmd_from_buffer(prompt_buffer_);
+                            std::string clean_prompt = recovery.command; 
+
                             for (const auto& prompt : config_.shell_prompts) {
-                                if (prompt_buffer_.size() >= prompt.size() &&
-                                    prompt_buffer_.substr(prompt_buffer_.size() - prompt.size()) == prompt) {
+                                if (clean_prompt.size() >= prompt.size() &&
+                                    clean_prompt.substr(clean_prompt.size() - prompt.size()) == prompt) {
                                     
-                                     // Logic update: in SSH, shell_state_ can be IDLE if we see a prompt
+                                     // Logic update: in SSH or complex shells (Zsh/Fish), shell_state_ can be IDLE if we see a prompt
                                     // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
-                                    if ((pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                    if ((pty_.is_shell_idle() || is_remote_session_ || is_complex_shell_) && !in_alt_screen_) {
                                         shell_state_ = ShellState::IDLE;
                                         synced_with_shell_ = true; // Confirmed prompt match
                                         was_visual_mode_ = false;  // Clear visual state for new command session
@@ -651,7 +656,7 @@ namespace dais::core {
                     bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
                     bool visual_mode = !is_fish_ && !in_alt_screen_ && (
                                        starts_with_colon || 
-                                       (!synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                       (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                        );
                     if (visual_mode) {
                         ensure_visual_mode_init();
@@ -705,6 +710,7 @@ namespace dais::core {
                                 cmd_accumulator.clear();
                                 cursor_pos_ = 0;
                                 was_visual_mode_ = false;
+                                synced_with_shell_ = false; // Fresh remote history -> out of sync
                                 // Fallthrough to forward the key to shell naturally
                             }
                             
@@ -714,7 +720,7 @@ namespace dais::core {
                                 bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
                                 bool visual_mode = !is_fish_ && !in_alt_screen_ && (
                                                    starts_with_colon || 
-                                                   (!synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                                   (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                                    );
 
                                 if (visual_mode) {
@@ -788,7 +794,7 @@ namespace dais::core {
                     // Mark that accumulator is now unreliable for this command.
                     // Only set flag when shell is IDLE (we're actually tracking the command) OR in remote session.
                     if (c == '\t') {
-                        if (pty_.is_shell_idle()) {
+                    if (pty_.is_shell_idle() || (is_fish_ && shell_state_ == ShellState::IDLE)) {
                             // If user navigated history, shell doesn't have the text yet.
                             // Sync shell with accumulator before sending Tab.
                             if (history_navigated_ && !cmd_accumulator.empty()) {
@@ -993,9 +999,10 @@ namespace dais::core {
                         
                         // Process DAIS interceptions when shell is idle
                         // Note: ls interception works even with tab (uses path validation)
-                        if (pty_.is_shell_idle() && !in_alt_screen_) {
+                        // Fish Fix: Allow interception if ShellState is IDLE even if pty reports busy
+                        if ((pty_.is_shell_idle() || (is_complex_shell_ && was_at_prompt)) && !in_alt_screen_) {
                             // 1. Detect 'ls' command (with or without arguments)
-                            if (cmd_accumulator == "ls" || cmd_accumulator.starts_with("ls ")) {
+                            if (clean == "ls" || clean.starts_with("ls ")) {
                                 // Check for remote session (SSH)
                                 check_remote_session();
 
@@ -1073,9 +1080,9 @@ namespace dais::core {
                                     
                                     sync_child_cwd(); // Get actual child shell CWD
                                     
-                                    // Parse arguments
-                                    auto ls_args = handlers::parse_ls_args(cmd_accumulator);
-                                    ls_args.padding = config_.ls_padding; // Apply user config padding
+                                     // Parse arguments
+                                     auto ls_args = handlers::parse_ls_args(clean);
+                                     ls_args.padding = config_.ls_padding; // Apply user config padding
                                     
                                     // When tab was used, resolve partial paths using fuzzy matching
                                     std::string resolved_cmd = cmd_accumulator;
@@ -1229,7 +1236,7 @@ namespace dais::core {
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
                         bool visual_mode = !is_fish_ && !in_alt_screen_ && (
                                            starts_with_colon || 
-                                           (!synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                           (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                            );
                         
                         if (!cmd_accumulator.empty() && cursor_pos_ > 0) {
@@ -1318,7 +1325,7 @@ namespace dais::core {
                             synced_with_shell_ = false;
                         }
 
-                        if (pty_.is_shell_idle() || is_remote_session_ || c == ':') {
+                        if (pty_.is_shell_idle() || is_remote_session_ || c == ':' || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) {
                             if (cursor_pos_ > cmd_accumulator.size()) cursor_pos_ = cmd_accumulator.size();
                             cmd_accumulator.insert(cursor_pos_, 1, c);
                             cursor_pos_++;
@@ -1399,6 +1406,9 @@ namespace dais::core {
         // We strip the trailing newline to prevent commitment.
         std::string block = paste_accumulator_;
         
+        // Check for remote session status immediately to ensure tracking logic is accurate
+        check_remote_session();
+
         // Remove carriage returns \r
         block.erase(std::remove(block.begin(), block.end(), '\r'), block.end());
         
@@ -1430,7 +1440,8 @@ namespace dais::core {
              write(pty_.get_master_fd(), block.c_str(), block.size());
              
              // Sync our local command tracker for remote session interception
-             if (pty_.is_shell_idle() || is_remote_session_) {
+             // Trust ShellState::IDLE for all complex shells (Zsh/Fish/Remote)
+             if (pty_.is_shell_idle() || is_remote_session_ || shell_state_ == ShellState::IDLE) {
                 input_accumulator_ += block;
                 if (!block.starts_with(":")) {
                     synced_with_shell_ = true;
