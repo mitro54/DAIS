@@ -439,8 +439,7 @@ namespace dais::core {
                         
                         // Shell-Specific Logo Injection Strategy:
                         if (is_complex_shell_ && !is_fish_) {
-                            // Zsh: ANSI escape sequence tracking only, NO logo injection
-                            // Logo is rendered by the shell's prompt, not pass-through injection
+                            // Zsh: Delayed logo injection with ANSI escape sequence tracking.
                             // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
                             if (pass_through_esc_state_ == 1) {
                                 if (c == '[') pass_through_esc_state_ = 2;
@@ -455,6 +454,14 @@ namespace dais::core {
                                 pass_through_esc_state_ = 0;
                             } else if (c == kEsc) {
                                 pass_through_esc_state_ = 1;
+                            } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
+                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                // Inject logo at line start when shell is idle
+                                if (c >= 33 && c < 127) {
+                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                    at_line_start_ = false;
+                                }
                             }
                         } else if (!is_complex_shell_) {
                             // Simple shells: inject immediately
@@ -1384,18 +1391,12 @@ namespace dais::core {
         std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
 
         // Echo command only if user typed it fresh (not from shell history recall)
-        // Fish: Just print newline - Fish handles its own command display, we only need separation
+        // Fish: Just print newline - Fish handles its own command display
+        // Other shells: Echo the command normally, pass-through handles logo injection
         if (is_fish_) {
             std::cout << "\r\n" << std::flush;
         } else if (!from_shell_echo) {
-            // ZSH: Add logo for DAIS internal commands since pass-through injection is disabled
-            // This is the only place ZSH gets logos for :commands
-            if (is_complex_shell_ && config_.show_logo) {
-                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                std::cout << logo_str << clean << "\r\n" << std::flush;
-            } else {
-                std::cout << clean << "\r\n" << std::flush;
-            }
+            std::cout << clean << "\r\n" << std::flush;
         } else {
             // Shell already echoed command - just print newline to separate from output
             std::cout << "\r\n" << std::flush;
