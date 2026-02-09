@@ -211,8 +211,12 @@ namespace dais::core {
      * @return true if synchronization occurred.
      */
     bool Engine::sync_history_to_shell(std::string& accumulator) {
-        if (!history_navigated_ || !pty_.is_shell_idle() || 
-            accumulator.empty() || accumulator.starts_with(":")) {
+        if (!history_navigated_ || accumulator.empty() || accumulator.starts_with(":")) {
+            return false;
+        }
+        
+        // Only require shell idle for local sessions (where it's reliable)
+        if (!is_remote_session_ && !pty_.is_shell_idle()) {
             return false;
         }
         

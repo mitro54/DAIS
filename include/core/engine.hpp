@@ -178,6 +178,8 @@ namespace dais::core {
         mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
         std::string prompt_buffer_;            ///< Last ~1024 chars for prompt/command detection
         int pass_through_esc_state_ = 0;       ///< ANSI escape sequence state machine (0=normal)
+        bool logo_injected_this_prompt_ = false; ///< Prevents multiple logos on the same prompt (e.g. multi-line)
+        int expect_prompt_attempts_ = 0;       ///< Force logo injection for N attempts (bypass idle check)
         
         // Singleton thread pool for parallel file analysis (used by ls handler)
         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)
@@ -213,6 +215,8 @@ namespace dais::core {
         
         enum class ShellState { IDLE, RUNNING };
         std::atomic<ShellState> shell_state_{ShellState::IDLE};
+        std::atomic<bool> synced_with_shell_{true};  ///< True if we are confident in shell state (False forces prompt hunt)
+        bool first_prompt_seen_ = false;              ///< Startup logo logic
         std::chrono::steady_clock::time_point last_command_time_;  ///< Debounce timer
         
         // =====================================================================
@@ -236,7 +240,6 @@ namespace dais::core {
         bool bracketed_paste_active_ = false;       ///< True if we are inside a \e[200~ ... \e[201~ block
         std::string paste_accumulator_;             ///< Local buffer for pasted text
         std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
-        std::atomic<bool> in_internal_command_{false}; ///< True during execute_internal_command (skip pass-through logo)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
         
         bool is_internal_command(const std::string& line); ///< Helper to identify :commands
@@ -301,7 +304,6 @@ namespace dais::core {
         std::atomic<bool> pending_remote_deployment_{false};
         std::atomic<bool> ready_to_deploy_{false};
         std::atomic<bool> in_alt_screen_{false};
-        std::atomic<bool> synced_with_shell_{false};  ///< Prevents race conditions by tracking if local buffer matches shell input
         std::atomic<int> cached_prompt_width_{-1};    ///< Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers
         bool intentionally_cleared_{false};           ///< Prevents "ghost" history adoption when user explicitly clears the line
         std::string last_remote_prompt_;              ///< Stores the prompt swallowed by execute_remote_command for later restoration
