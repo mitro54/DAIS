@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-04 18:56:14</td>
+            <td class="headerValue">2026-02-10 02:35:41</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryLo">20.0&nbsp;%</td>
@@ -57,7 +57,7 @@
             <td></td>
             <td class="headerItem">Branches:</td>
             <td class="headerCovTableEntryLo">1.0&nbsp;%</td>
-            <td class="headerCovTableEntry">394</td>
+            <td class="headerCovTableEntry">396</td>
             <td class="headerCovTableEntry">4</td>
           </tr>
                   <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
@@ -109,16 +109,16 @@
 <span id="L31"><span class="lineNum">      31</span>                 :             :      * When a new session is detected, it resets the remote state (agent deployed,</span>
 <span id="L32"><span class="lineNum">      32</span>                 :             :      * architecture, etc.) to ensure a fresh environment scan.</span>
 <span id="L33"><span class="lineNum">      33</span>                 :             :      */</span>
-<span id="L34"><span class="lineNum">      34</span>                 :<span class="tlaGNC tlaBgGNC">          36 :     void Engine::check_remote_session() {</span></span>
-<span id="L35"><span class="lineNum">      35</span>         [<span class="tlaGBC" title="Branch 0 was taken 36 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          36 :         std::string fg = pty_.get_foreground_process_name();</span></span>
-<span id="L36"><span class="lineNum">      36</span>         [<span class="tlaGBC" title="Branch 0 was taken 36 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          36 :         int fg_pid = pty_.get_foreground_process_pid();</span></span>
+<span id="L34"><span class="lineNum">      34</span>                 :<span class="tlaGNC tlaBgGNC">         118 :     void Engine::check_remote_session() {</span></span>
+<span id="L35"><span class="lineNum">      35</span>         [<span class="tlaGBC" title="Branch 0 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         118 :         std::string fg = pty_.get_foreground_process_name();</span></span>
+<span id="L36"><span class="lineNum">      36</span>         [<span class="tlaGBC" title="Branch 0 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         118 :         int fg_pid = pty_.get_foreground_process_pid();</span></span>
 <span id="L37"><span class="lineNum">      37</span>                 :             :         </span>
-<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC">          36 :         bool was = is_remote_session_;</span></span>
+<span id="L38"><span class="lineNum">      38</span>                 :<span class="tlaGNC">         118 :         bool was = is_remote_session_;</span></span>
 <span id="L39"><span class="lineNum">      39</span>                 :             :         </span>
 <span id="L40"><span class="lineNum">      40</span>                 :             :         // Simple heuristic: if foreground process contains &quot;ssh&quot;, assume remote.</span>
-<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">          36 :         bool detected_ssh = (fg.find(&quot;ssh&quot;) != std::string::npos);</span></span>
+<span id="L41"><span class="lineNum">      41</span>                 :<span class="tlaGNC">         118 :         bool detected_ssh = (fg.find(&quot;ssh&quot;) != std::string::npos);</span></span>
 <span id="L42"><span class="lineNum">      42</span>                 :             : </span>
-<span id="L43"><span class="lineNum">      43</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 36 times"> + </span>]:<span class="tlaGNC">          36 :         if (detected_ssh) {</span></span>
+<span id="L43"><span class="lineNum">      43</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 118 times"> + </span>]:<span class="tlaGNC">         118 :         if (detected_ssh) {</span></span>
 <span id="L44"><span class="lineNum">      44</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             is_remote_session_ = true;</span></span>
 <span id="L45"><span class="lineNum">      45</span>                 :             :             </span>
 <span id="L46"><span class="lineNum">      46</span>                 :             :             // New Session Logic:</span>
@@ -139,16 +139,16 @@
 <span id="L61"><span class="lineNum">      61</span>                 :             :             // Not detecting SSH currently.</span>
 <span id="L62"><span class="lineNum">      62</span>                 :             :             // Safe Reset: Only verify we actually LEFT the session if the previous PID is gone</span>
 <span id="L63"><span class="lineNum">      63</span>                 :             :             // or if the current foreground PID is explicitly DIFFERENT and NOT ssh.</span>
-<span id="L64"><span class="lineNum">      64</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 36 times"> + </span>]:<span class="tlaGNC tlaBgGNC">          36 :             if (was) {</span></span>
+<span id="L64"><span class="lineNum">      64</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 118 times"> + </span>]:<span class="tlaGNC tlaBgGNC">         118 :             if (was) {</span></span>
 <span id="L65"><span class="lineNum">      65</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC tlaBgUNC">           0 :                if (fg_pid != remote_session_pid_) {</span></span>
 <span id="L66"><span class="lineNum">      66</span>                 :<span class="tlaUNC">           0 :                    is_remote_session_ = false;</span></span>
 <span id="L67"><span class="lineNum">      67</span>                 :<span class="tlaUNC">           0 :                    remote_session_pid_ = -1;</span></span>
 <span id="L68"><span class="lineNum">      68</span>                 :             :                } </span>
 <span id="L69"><span class="lineNum">      69</span>                 :             :             } else {</span>
-<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC tlaBgGNC">          36 :                 is_remote_session_ = false;</span></span>
+<span id="L70"><span class="lineNum">      70</span>                 :<span class="tlaGNC tlaBgGNC">         118 :                 is_remote_session_ = false;</span></span>
 <span id="L71"><span class="lineNum">      71</span>                 :             :             }</span>
 <span id="L72"><span class="lineNum">      72</span>                 :             :         }</span>
-<span id="L73"><span class="lineNum">      73</span>                 :<span class="tlaGNC">          36 :     }</span></span>
+<span id="L73"><span class="lineNum">      73</span>                 :<span class="tlaGNC">         118 :     }</span></span>
 <span id="L74"><span class="lineNum">      74</span>                 :             : </span>
 <span id="L75"><span class="lineNum">      75</span>                 :             :     /**</span>
 <span id="L76"><span class="lineNum">      76</span>                 :             :      * @brief Executes a command on the remote host and captures its output.</span>
@@ -326,7 +326,8 @@
 <span id="L240"><span class="lineNum">     240</span>                 :             :      * 6. Verifies integrity (sha256sum) after deployment.</span>
 <span id="L241"><span class="lineNum">     241</span>                 :             :      */</span>
 <span id="L242"><span class="lineNum">     242</span>                 :<span class="tlaUNC">           0 :     void Engine::deploy_remote_agent() {</span></span>
-<span id="L243"><span class="lineNum">     243</span>   [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span><span class="tlaUNC" title="Branch 2 was not executed"> # </span><span class="tlaUNC" title="Branch 3 was not executed"> # </span>]:<span class="tlaUNC">           0 :         if (remote_agent_deployed_ || !is_remote_session_) return;</span></span>
+<span id="L243"><span class="lineNum">     243</span>   [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span><span class="tlaUNC" title="Branch 2 was not executed"> # </span><span class="tlaUNC" title="Branch 3 was not executed"> # </span> :<span class="tlaUNC">           0 :         if (remote_agent_deployed_ || !is_remote_session_) return;</span></span>
+<span class="lineNum">        </span>          <span class="tlaUNC" title="Branch 4 was not executed"> # </span><span class="tlaUNC" title="Branch 5 was not executed"> # </span>]
 <span id="L244"><span class="lineNum">     244</span>   [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span><span class="tlaUNC" title="Branch 2 was not executed"> # </span><span class="tlaUNC" title="Branch 3 was not executed"> # </span> :<span class="tlaUNC">           0 :         if (!is_remote_session_ &amp;&amp; !pty_.is_shell_idle()) return;</span></span>
 <span class="lineNum">        </span>          <span class="tlaUNC" title="Branch 4 was not executed"> # </span><span class="tlaUNC" title="Branch 5 was not executed"> # </span>]
 <span id="L245"><span class="lineNum">     245</span>                 :             :         </span>

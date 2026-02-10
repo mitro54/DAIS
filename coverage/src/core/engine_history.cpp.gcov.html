@@ -31,13 +31,13 @@
             <td class="headerValue">DAIS Code Coverage</td>
             <td></td>
             <td class="headerItem">Lines:</td>
-            <td class="headerCovTableEntryLo">47.9&nbsp;%</td>
-            <td class="headerCovTableEntry">96</td>
-            <td class="headerCovTableEntry">46</td>
+            <td class="headerCovTableEntryLo">54.4&nbsp;%</td>
+            <td class="headerCovTableEntry">103</td>
+            <td class="headerCovTableEntry">56</td>
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-04 18:56:14</td>
+            <td class="headerValue">2026-02-10 02:35:41</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryMed">80.0&nbsp;%</td>
@@ -56,9 +56,9 @@
 </td>
             <td></td>
             <td class="headerItem">Branches:</td>
-            <td class="headerCovTableEntryLo">26.3&nbsp;%</td>
-            <td class="headerCovTableEntry">156</td>
-            <td class="headerCovTableEntry">41</td>
+            <td class="headerCovTableEntryLo">34.7&nbsp;%</td>
+            <td class="headerCovTableEntry">170</td>
+            <td class="headerCovTableEntry">59</td>
           </tr>
                   <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
                 </table>
@@ -101,30 +101,30 @@
 <span id="L23"><span class="lineNum">      23</span>                 :             :      * Truncates the history if it exceeds `MAX_HISTORY` to keep memory usage low.</span>
 <span id="L24"><span class="lineNum">      24</span>                 :             :      * Sets `history_index_` to the end, so the first Up Arrow press retrieves the last command.</span>
 <span id="L25"><span class="lineNum">      25</span>                 :             :      */</span>
-<span id="L26"><span class="lineNum">      26</span>                 :<span class="tlaGNC tlaBgGNC">          15 :     void Engine::load_history() {</span></span>
-<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC">          15 :         const char* home = getenv(&quot;HOME&quot;);</span></span>
-<span id="L28"><span class="lineNum">      28</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 15 times"> + </span>]:<span class="tlaGNC">          17 :         if (!home) return;</span></span>
+<span id="L26"><span class="lineNum">      26</span>                 :<span class="tlaGNC tlaBgGNC">          16 :     void Engine::load_history() {</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC">          16 :         const char* home = getenv(&quot;HOME&quot;);</span></span>
+<span id="L28"><span class="lineNum">      28</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 16 times"> + </span>]:<span class="tlaGNC">          18 :         if (!home) return;</span></span>
 <span id="L29"><span class="lineNum">      29</span>                 :             :         </span>
-<span id="L30"><span class="lineNum">      30</span>   [<span class="tlaGBC" title="Branch 0 was taken 15 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 15 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">          15 :         history_file_ = std::filesystem::path(home) / &quot;.dais_history&quot;;</span></span>
-<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 15 times"> + </span><span class="tlaUNC" title="Branch 5 was not taken"> - </span>]
+<span id="L30"><span class="lineNum">      30</span>   [<span class="tlaGBC" title="Branch 0 was taken 16 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 16 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">          16 :         history_file_ = std::filesystem::path(home) / &quot;.dais_history&quot;;</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 16 times"> + </span><span class="tlaUNC" title="Branch 5 was not taken"> - </span>]
 <span id="L31"><span class="lineNum">      31</span>                 :             :         </span>
-<span id="L32"><span class="lineNum">      32</span>         [<span class="tlaGBC" title="Branch 0 was taken 15 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          15 :         std::ifstream file(history_file_);</span></span>
-<span id="L33"><span class="lineNum">      33</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 13 times"> + </span>]:<span class="tlaGNC">          15 :         if (!file.is_open()) return;</span></span>
+<span id="L32"><span class="lineNum">      32</span>         [<span class="tlaGBC" title="Branch 0 was taken 16 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          16 :         std::ifstream file(history_file_);</span></span>
+<span id="L33"><span class="lineNum">      33</span>         [<span class="tlaGBC" title="Branch 0 was taken 2 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 14 times"> + </span>]:<span class="tlaGNC">          16 :         if (!file.is_open()) return;</span></span>
 <span id="L34"><span class="lineNum">      34</span>                 :             :         </span>
-<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaGNC">          13 :         std::string line;</span></span>
-<span id="L36"><span class="lineNum">      36</span>   [<span class="tlaGBC" title="Branch 0 was taken 250 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 250 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">         263 :         while (std::getline(file, line)) {</span></span>
-<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 237 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 13 times"> + </span>]
-<span id="L37"><span class="lineNum">      37</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 237 times"> + </span>]:<span class="tlaGNC">         237 :             if (!line.empty()) {</span></span>
-<span id="L38"><span class="lineNum">      38</span>         [<span class="tlaGBC" title="Branch 0 was taken 237 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         237 :                 command_history_.push_back(line);</span></span>
+<span id="L35"><span class="lineNum">      35</span>                 :<span class="tlaGNC">          14 :         std::string line;</span></span>
+<span id="L36"><span class="lineNum">      36</span>   [<span class="tlaGBC" title="Branch 0 was taken 261 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 261 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">         275 :         while (std::getline(file, line)) {</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 247 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 14 times"> + </span>]
+<span id="L37"><span class="lineNum">      37</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 247 times"> + </span>]:<span class="tlaGNC">         247 :             if (!line.empty()) {</span></span>
+<span id="L38"><span class="lineNum">      38</span>         [<span class="tlaGBC" title="Branch 0 was taken 247 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         247 :                 command_history_.push_back(line);</span></span>
 <span id="L39"><span class="lineNum">      39</span>                 :             :             }</span>
 <span id="L40"><span class="lineNum">      40</span>                 :             :         }</span>
 <span id="L41"><span class="lineNum">      41</span>                 :             :         </span>
-<span id="L42"><span class="lineNum">      42</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 13 times"> + </span>]:<span class="tlaGNC">          13 :         while (command_history_.size() &gt; MAX_HISTORY) {</span></span>
+<span id="L42"><span class="lineNum">      42</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 14 times"> + </span>]:<span class="tlaGNC">          14 :         while (command_history_.size() &gt; MAX_HISTORY) {</span></span>
 <span id="L43"><span class="lineNum">      43</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             command_history_.pop_front();</span></span>
 <span id="L44"><span class="lineNum">      44</span>                 :             :         }</span>
 <span id="L45"><span class="lineNum">      45</span>                 :             :         </span>
-<span id="L46"><span class="lineNum">      46</span>                 :<span class="tlaGNC tlaBgGNC">          13 :         history_index_ = command_history_.size();</span></span>
-<span id="L47"><span class="lineNum">      47</span>         [<span class="tlaGBC" title="Branch 0 was taken 13 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span>]:<span class="tlaGNC">          15 :     }</span></span>
+<span id="L46"><span class="lineNum">      46</span>                 :<span class="tlaGNC tlaBgGNC">          14 :         history_index_ = command_history_.size();</span></span>
+<span id="L47"><span class="lineNum">      47</span>         [<span class="tlaGBC" title="Branch 0 was taken 14 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 2 times"> + </span>]:<span class="tlaGNC">          16 :     }</span></span>
 <span id="L48"><span class="lineNum">      48</span>                 :             :     </span>
 <span id="L49"><span class="lineNum">      49</span>                 :             :     /**</span>
 <span id="L50"><span class="lineNum">      50</span>                 :             :      * @brief Appends a command to history (in-memory and file).</span>
@@ -135,25 +135,25 @@
 <span id="L55"><span class="lineNum">      55</span>                 :             :      * </span>
 <span id="L56"><span class="lineNum">      56</span>                 :             :      * @param cmd The command string to save.</span>
 <span id="L57"><span class="lineNum">      57</span>                 :             :      */</span>
-<span id="L58"><span class="lineNum">      58</span>                 :<span class="tlaGNC">          29 :     void Engine::save_history_entry(const std::string&amp; cmd) {</span></span>
-<span id="L59"><span class="lineNum">      59</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 29 times"> + </span>]:<span class="tlaGNC">          29 :         if (cmd.empty()) return;</span></span>
+<span id="L58"><span class="lineNum">      58</span>                 :<span class="tlaGNC">          32 :     void Engine::save_history_entry(const std::string&amp; cmd) {</span></span>
+<span id="L59"><span class="lineNum">      59</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 32 times"> + </span>]:<span class="tlaGNC">          32 :         if (cmd.empty()) return;</span></span>
 <span id="L60"><span class="lineNum">      60</span>                 :             :         </span>
-<span id="L61"><span class="lineNum">      61</span>   [<span class="tlaGBC" title="Branch 0 was taken 26 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 25 times"> + </span> :<span class="tlaGNC">          29 :         if (!command_history_.empty() &amp;&amp; command_history_.back() == cmd) {</span></span>
-<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 5 was taken 28 times"> + </span>]
+<span id="L61"><span class="lineNum">      61</span>   [<span class="tlaGBC" title="Branch 0 was taken 29 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 3 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 28 times"> + </span> :<span class="tlaGNC">          32 :         if (!command_history_.empty() &amp;&amp; command_history_.back() == cmd) {</span></span>
+<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 5 was taken 31 times"> + </span>]
 <span id="L62"><span class="lineNum">      62</span>                 :<span class="tlaGNC">           1 :             return;</span></span>
 <span id="L63"><span class="lineNum">      63</span>                 :             :         }</span>
 <span id="L64"><span class="lineNum">      64</span>                 :             :         </span>
-<span id="L65"><span class="lineNum">      65</span>                 :<span class="tlaGNC">          28 :         command_history_.push_back(cmd);</span></span>
-<span id="L66"><span class="lineNum">      66</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 28 times"> + </span>]:<span class="tlaGNC">          28 :         if (command_history_.size() &gt; MAX_HISTORY) {</span></span>
+<span id="L65"><span class="lineNum">      65</span>                 :<span class="tlaGNC">          31 :         command_history_.push_back(cmd);</span></span>
+<span id="L66"><span class="lineNum">      66</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 31 times"> + </span>]:<span class="tlaGNC">          31 :         if (command_history_.size() &gt; MAX_HISTORY) {</span></span>
 <span id="L67"><span class="lineNum">      67</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             command_history_.pop_front();</span></span>
 <span id="L68"><span class="lineNum">      68</span>                 :             :         }</span>
 <span id="L69"><span class="lineNum">      69</span>                 :             :         </span>
-<span id="L70"><span class="lineNum">      70</span>         [<span class="tlaGBC" title="Branch 0 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC tlaBgGNC">          28 :         if (!history_file_.empty()) {</span></span>
-<span id="L71"><span class="lineNum">      71</span>         [<span class="tlaGBC" title="Branch 0 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          28 :             std::ofstream file(history_file_, std::ios::app);</span></span>
-<span id="L72"><span class="lineNum">      72</span>         [<span class="tlaGBC" title="Branch 0 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          28 :             if (file.is_open()) {</span></span>
-<span id="L73"><span class="lineNum">      73</span>   [<span class="tlaGBC" title="Branch 0 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 28 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">          28 :                 file &lt;&lt; cmd &lt;&lt; &quot;\n&quot;;</span></span>
+<span id="L70"><span class="lineNum">      70</span>         [<span class="tlaGBC" title="Branch 0 was taken 31 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC tlaBgGNC">          31 :         if (!history_file_.empty()) {</span></span>
+<span id="L71"><span class="lineNum">      71</span>         [<span class="tlaGBC" title="Branch 0 was taken 31 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          31 :             std::ofstream file(history_file_, std::ios::app);</span></span>
+<span id="L72"><span class="lineNum">      72</span>         [<span class="tlaGBC" title="Branch 0 was taken 31 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">          31 :             if (file.is_open()) {</span></span>
+<span id="L73"><span class="lineNum">      73</span>   [<span class="tlaGBC" title="Branch 0 was taken 31 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 31 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">          31 :                 file &lt;&lt; cmd &lt;&lt; &quot;\n&quot;;</span></span>
 <span id="L74"><span class="lineNum">      74</span>                 :             :             }</span>
-<span id="L75"><span class="lineNum">      75</span>                 :<span class="tlaGNC">          28 :         }</span></span>
+<span id="L75"><span class="lineNum">      75</span>                 :<span class="tlaGNC">          31 :         }</span></span>
 <span id="L76"><span class="lineNum">      76</span>                 :             :     }</span>
 <span id="L77"><span class="lineNum">      77</span>                 :             :     </span>
 <span id="L78"><span class="lineNum">      78</span>                 :             :     /**</span>
@@ -296,32 +296,47 @@
 <span id="L210"><span class="lineNum">     210</span>                 :             :      * @param accumulator The command string currently visible to the user.</span>
 <span id="L211"><span class="lineNum">     211</span>                 :             :      * @return true if synchronization occurred.</span>
 <span id="L212"><span class="lineNum">     212</span>                 :             :      */</span>
-<span id="L213"><span class="lineNum">     213</span>                 :<span class="tlaGNC tlaBgGNC">         534 :     bool Engine::sync_history_to_shell(std::string&amp; accumulator) {</span></span>
-<span id="L214"><span class="lineNum">     214</span>   [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span><span class="tlaUNC" title="Branch 2 was not executed"> # </span><span class="tlaUNC" title="Branch 3 was not executed"> # </span>]:<span class="tlaUNC tlaBgUNC">           0 :         if (!history_navigated_ || !pty_.is_shell_idle() || </span></span>
-<span id="L215"><span class="lineNum">     215</span>   [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 534 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC tlaBgGNC">         534 :             accumulator.empty() || accumulator.starts_with(&quot;:&quot;)) {</span></span>
-<span class="lineNum">        </span>          <span class="tlaGBC" title="Branch 4 was taken 534 times"> + </span><span class="tlaUNC" title="Branch 5 was not taken"> - </span>]
-<span id="L216"><span class="lineNum">     216</span>                 :<span class="tlaGNC">         534 :             return false;</span></span>
-<span id="L217"><span class="lineNum">     217</span>                 :             :         }</span>
-<span id="L218"><span class="lineNum">     218</span>                 :             :         </span>
-<span id="L219"><span class="lineNum">     219</span>                 :             :         // Visual Cleanup: Move cursor left to start of command</span>
-<span id="L220"><span class="lineNum">     220</span>                 :             :         // Fish-only: Skip these escape sequences - Fish's prompt repainting conflicts with them</span>
-<span id="L221"><span class="lineNum">     221</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC tlaBgUNC">           0 :         if (!is_fish_) {</span></span>
-<span id="L222"><span class="lineNum">     222</span>   [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span><span class="tlaUNC" title="Branch 2 was not executed"> # </span><span class="tlaUNC" title="Branch 3 was not executed"> # </span> :<span class="tlaUNC">           0 :             std::cout &lt;&lt; &quot;\x1b[&quot; &lt;&lt; accumulator.size() &lt;&lt; &quot;D\x1b[K&quot; &lt;&lt; std::flush;</span></span>
-<span class="lineNum">        </span>    <span class="tlaUNC" title="Branch 4 was not executed"> # </span><span class="tlaUNC" title="Branch 5 was not executed"> # </span><span class="tlaUNC" title="Branch 6 was not executed"> # </span><span class="tlaUNC" title="Branch 7 was not executed"> # </span>]
-<span id="L223"><span class="lineNum">     223</span>                 :             :         }</span>
-<span id="L224"><span class="lineNum">     224</span>                 :             : </span>
-<span id="L225"><span class="lineNum">     225</span>                 :             :         </span>
-<span id="L226"><span class="lineNum">     226</span>                 :             :         // Logical Injection: Kill line -&gt; Send Text</span>
-<span id="L227"><span class="lineNum">     227</span>                 :<span class="tlaUNC">           0 :         const char kill_line = kCtrlU;</span></span>
-<span id="L228"><span class="lineNum">     228</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC">           0 :         write(pty_.get_master_fd(), &amp;kill_line, 1);</span></span>
-<span id="L229"><span class="lineNum">     229</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC">           0 :         write(pty_.get_master_fd(), accumulator.c_str(), accumulator.size());</span></span>
-<span id="L230"><span class="lineNum">     230</span>                 :             :         </span>
-<span id="L231"><span class="lineNum">     231</span>                 :<span class="tlaUNC">           0 :         history_navigated_ = false;</span></span>
-<span id="L232"><span class="lineNum">     232</span>                 :<span class="tlaUNC">           0 :         synced_with_shell_ = true;</span></span>
-<span id="L233"><span class="lineNum">     233</span>                 :<span class="tlaUNC">           0 :         return true;</span></span>
-<span id="L234"><span class="lineNum">     234</span>                 :             :     }</span>
-<span id="L235"><span class="lineNum">     235</span>                 :             : </span>
-<span id="L236"><span class="lineNum">     236</span>                 :             : }</span>
+<span id="L213"><span class="lineNum">     213</span>                 :<span class="tlaGNC tlaBgGNC">         574 :     bool Engine::sync_history_to_shell(std::string&amp; accumulator) {</span></span>
+<span id="L214"><span class="lineNum">     214</span>   [<span class="tlaGBC" title="Branch 0 was taken 218 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 356 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaGBC" title="Branch 3 was taken 218 times"> + </span> :<span class="tlaGNC">         574 :         if ((synced_with_shell_ &amp;&amp; !history_navigated_) || accumulator.empty() || accumulator.starts_with(&quot;:&quot;)) {</span></span>
+<span class="lineNum">        </span> <span class="tlaGBC" title="Branch 4 was taken 336 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 20 times"> + </span><span class="tlaGBC" title="Branch 6 was taken 335 times"> + </span><span class="tlaGBC" title="Branch 7 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 8 was taken 573 times"> + </span> 
+<span class="lineNum">        </span>             <span class="tlaGBC" title="Branch 9 was taken 1 time"> + </span>]
+<span id="L215"><span class="lineNum">     215</span>                 :<span class="tlaGNC">         573 :             return false;</span></span>
+<span id="L216"><span class="lineNum">     216</span>                 :             :         }</span>
+<span id="L217"><span class="lineNum">     217</span>                 :             :         </span>
+<span id="L218"><span class="lineNum">     218</span>                 :             :         // Only require shell idle for local sessions (where it's reliable)</span>
+<span id="L219"><span class="lineNum">     219</span>   [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaGBC" title="Branch 3 was taken 1 time"> + </span> :<span class="tlaGNC">           1 :         if (!is_remote_session_ &amp;&amp; !pty_.is_shell_idle()) {</span></span>
+<span class="lineNum">        </span>          <span class="tlaUNC" title="Branch 4 was not taken"> - </span><span class="tlaGBC" title="Branch 5 was taken 1 time"> + </span>]
+<span id="L220"><span class="lineNum">     220</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             return false;</span></span>
+<span id="L221"><span class="lineNum">     221</span>                 :             :         }</span>
+<span id="L222"><span class="lineNum">     222</span>                 :             :         </span>
+<span id="L223"><span class="lineNum">     223</span>                 :             :         // Visual Cleanup: Move cursor left to start of command</span>
+<span id="L224"><span class="lineNum">     224</span>                 :             :         // Fish-only: Skip these escape sequences - Fish's prompt repainting conflicts with them</span>
+<span id="L225"><span class="lineNum">     225</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC tlaBgGNC">           1 :         if (!is_fish_) {</span></span>
+<span id="L226"><span class="lineNum">     226</span>   [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span> :<span class="tlaGNC">           1 :             std::cout &lt;&lt; &quot;\x1b[&quot; &lt;&lt; accumulator.size() &lt;&lt; &quot;D\x1b[K&quot; &lt;&lt; std::flush;</span></span>
+<span class="lineNum">        </span>    <span class="tlaGBC" title="Branch 4 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 5 was not taken"> - </span><span class="tlaGBC" title="Branch 6 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 7 was not taken"> - </span>]
+<span id="L227"><span class="lineNum">     227</span>                 :             :         }</span>
+<span id="L228"><span class="lineNum">     228</span>                 :             : </span>
+<span id="L229"><span class="lineNum">     229</span>                 :             :         </span>
+<span id="L230"><span class="lineNum">     230</span>                 :             :         // Logical Injection: Kill line -&gt; Send Text</span>
+<span id="L231"><span class="lineNum">     231</span>                 :<span class="tlaGNC">           1 :         const char kill_line = kCtrlU;</span></span>
+<span id="L232"><span class="lineNum">     232</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">           1 :         write(pty_.get_master_fd(), &amp;kill_line, 1);</span></span>
+<span id="L233"><span class="lineNum">     233</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">           1 :         write(pty_.get_master_fd(), accumulator.c_str(), accumulator.size());</span></span>
+<span id="L234"><span class="lineNum">     234</span>                 :             :         </span>
+<span id="L235"><span class="lineNum">     235</span>                 :             :         // Cursor Sync: If local cursor is not at end, send Left Arrows to match</span>
+<span id="L236"><span class="lineNum">     236</span>         [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span>]:<span class="tlaGNC">           1 :         if (cursor_pos_ &lt; accumulator.size()) {</span></span>
+<span id="L237"><span class="lineNum">     237</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             std::string left_arrows;</span></span>
+<span id="L238"><span class="lineNum">     238</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC">           0 :             for (size_t i = 0; i &lt; accumulator.size() - cursor_pos_; ++i) {</span></span>
+<span id="L239"><span class="lineNum">     239</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC">           0 :                 left_arrows += &quot;\x1b[D&quot;;</span></span>
+<span id="L240"><span class="lineNum">     240</span>                 :             :             }</span>
+<span id="L241"><span class="lineNum">     241</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC">           0 :             write(pty_.get_master_fd(), left_arrows.c_str(), left_arrows.size());</span></span>
+<span id="L242"><span class="lineNum">     242</span>                 :<span class="tlaUNC">           0 :         }</span></span>
+<span id="L243"><span class="lineNum">     243</span>                 :             : </span>
+<span id="L244"><span class="lineNum">     244</span>                 :<span class="tlaGNC tlaBgGNC">           1 :         history_navigated_ = false;</span></span>
+<span id="L245"><span class="lineNum">     245</span>                 :<span class="tlaGNC">           1 :         synced_with_shell_ = true;</span></span>
+<span id="L246"><span class="lineNum">     246</span>                 :<span class="tlaGNC">           1 :         return true;</span></span>
+<span id="L247"><span class="lineNum">     247</span>                 :             :     }</span>
+<span id="L248"><span class="lineNum">     248</span>                 :             : </span>
+<span id="L249"><span class="lineNum">     249</span>                 :             : }</span>
         </pre>
               </td>
             </tr>

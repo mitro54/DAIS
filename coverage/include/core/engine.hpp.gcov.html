@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-04 18:56:14</td>
+            <td class="headerValue">2026-02-10 02:35:41</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
@@ -256,161 +256,164 @@
 <span id="L178"><span class="lineNum">     178</span>                 :             :         mutable std::mutex prompt_mutex_;      ///&lt; Protects prompt_buffer_</span>
 <span id="L179"><span class="lineNum">     179</span>                 :             :         std::string prompt_buffer_;            ///&lt; Last ~1024 chars for prompt/command detection</span>
 <span id="L180"><span class="lineNum">     180</span>                 :             :         int pass_through_esc_state_ = 0;       ///&lt; ANSI escape sequence state machine (0=normal)</span>
-<span id="L181"><span class="lineNum">     181</span>                 :             :         </span>
-<span id="L182"><span class="lineNum">     182</span>                 :             :         // Singleton thread pool for parallel file analysis (used by ls handler)</span>
-<span id="L183"><span class="lineNum">     183</span>                 :             :         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)</span>
-<span id="L184"><span class="lineNum">     184</span>                 :             :         // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs</span>
-<span id="L185"><span class="lineNum">     185</span>                 :<span class="tlaGNC tlaBgGNC">          15 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
-<span id="L186"><span class="lineNum">     186</span>                 :             : </span>
-<span id="L187"><span class="lineNum">     187</span>                 :             :         // python state</span>
-<span id="L188"><span class="lineNum">     188</span>                 :             :         py::scoped_interpreter guard{}; </span>
-<span id="L189"><span class="lineNum">     189</span>                 :             :         std::vector&lt;py::module_&gt; loaded_plugins_;</span>
-<span id="L190"><span class="lineNum">     190</span>                 :             : </span>
-<span id="L191"><span class="lineNum">     191</span>                 :             : </span>
+<span id="L181"><span class="lineNum">     181</span>                 :             :         bool logo_injected_this_prompt_ = false; ///&lt; Prevents multiple logos on the same prompt (e.g. multi-line)</span>
+<span id="L182"><span class="lineNum">     182</span>                 :             :         int expect_prompt_attempts_ = 0;       ///&lt; Force logo injection for N attempts (bypass idle check)</span>
+<span id="L183"><span class="lineNum">     183</span>                 :             :         </span>
+<span id="L184"><span class="lineNum">     184</span>                 :             :         // Singleton thread pool for parallel file analysis (used by ls handler)</span>
+<span id="L185"><span class="lineNum">     185</span>                 :             :         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)</span>
+<span id="L186"><span class="lineNum">     186</span>                 :             :         // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs</span>
+<span id="L187"><span class="lineNum">     187</span>                 :<span class="tlaGNC tlaBgGNC">          16 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
+<span id="L188"><span class="lineNum">     188</span>                 :             : </span>
+<span id="L189"><span class="lineNum">     189</span>                 :             :         // python state</span>
+<span id="L190"><span class="lineNum">     190</span>                 :             :         py::scoped_interpreter guard{}; </span>
+<span id="L191"><span class="lineNum">     191</span>                 :             :         std::vector&lt;py::module_&gt; loaded_plugins_;</span>
 <span id="L192"><span class="lineNum">     192</span>                 :             : </span>
-<span id="L193"><span class="lineNum">     193</span>                 :             :         void trigger_python_hook(const std::string&amp; hook_name, const std::string&amp; data);</span>
+<span id="L193"><span class="lineNum">     193</span>                 :             : </span>
 <span id="L194"><span class="lineNum">     194</span>                 :             : </span>
-<span id="L195"><span class="lineNum">     195</span>                 :             :         /** * @brief Queries the OS to get the actual CWD of the child shell process.</span>
-<span id="L196"><span class="lineNum">     196</span>                 :             :          * Essential for handling TAB completion where input buffer doesn't match path.</span>
-<span id="L197"><span class="lineNum">     197</span>                 :             :          */</span>
-<span id="L198"><span class="lineNum">     198</span>                 :             :         void sync_child_cwd();</span>
-<span id="L199"><span class="lineNum">     199</span>                 :             :         </span>
-<span id="L200"><span class="lineNum">     200</span>                 :             :         /** @brief Resolves partial paths using fuzzy component matching.</span>
-<span id="L201"><span class="lineNum">     201</span>                 :             :          * Used to recover tab-completed paths from incomplete accumulator data.</span>
-<span id="L202"><span class="lineNum">     202</span>                 :             :          */</span>
-<span id="L203"><span class="lineNum">     203</span>                 :             :         std::filesystem::path resolve_partial_path(</span>
-<span id="L204"><span class="lineNum">     204</span>                 :             :             const std::string&amp; partial, </span>
-<span id="L205"><span class="lineNum">     205</span>                 :             :             const std::filesystem::path&amp; cwd</span>
-<span id="L206"><span class="lineNum">     206</span>                 :             :         );</span>
-<span id="L207"><span class="lineNum">     207</span>                 :             :         </span>
-<span id="L208"><span class="lineNum">     208</span>                 :             :         // =====================================================================</span>
-<span id="L209"><span class="lineNum">     209</span>                 :             :         // SHELL STATE (Prompt-Based Detection)</span>
+<span id="L195"><span class="lineNum">     195</span>                 :             :         void trigger_python_hook(const std::string&amp; hook_name, const std::string&amp; data);</span>
+<span id="L196"><span class="lineNum">     196</span>                 :             : </span>
+<span id="L197"><span class="lineNum">     197</span>                 :             :         /** * @brief Queries the OS to get the actual CWD of the child shell process.</span>
+<span id="L198"><span class="lineNum">     198</span>                 :             :          * Essential for handling TAB completion where input buffer doesn't match path.</span>
+<span id="L199"><span class="lineNum">     199</span>                 :             :          */</span>
+<span id="L200"><span class="lineNum">     200</span>                 :             :         void sync_child_cwd();</span>
+<span id="L201"><span class="lineNum">     201</span>                 :             :         </span>
+<span id="L202"><span class="lineNum">     202</span>                 :             :         /** @brief Resolves partial paths using fuzzy component matching.</span>
+<span id="L203"><span class="lineNum">     203</span>                 :             :          * Used to recover tab-completed paths from incomplete accumulator data.</span>
+<span id="L204"><span class="lineNum">     204</span>                 :             :          */</span>
+<span id="L205"><span class="lineNum">     205</span>                 :             :         std::filesystem::path resolve_partial_path(</span>
+<span id="L206"><span class="lineNum">     206</span>                 :             :             const std::string&amp; partial, </span>
+<span id="L207"><span class="lineNum">     207</span>                 :             :             const std::filesystem::path&amp; cwd</span>
+<span id="L208"><span class="lineNum">     208</span>                 :             :         );</span>
+<span id="L209"><span class="lineNum">     209</span>                 :             :         </span>
 <span id="L210"><span class="lineNum">     210</span>                 :             :         // =====================================================================</span>
-<span id="L211"><span class="lineNum">     211</span>                 :             :         // Track shell state based on events.</span>
-<span id="L212"><span class="lineNum">     212</span>                 :             :         // IDLE = at prompt (matches shell_prompts config), RUNNING = command executing.</span>
-<span id="L213"><span class="lineNum">     213</span>                 :             :         </span>
-<span id="L214"><span class="lineNum">     214</span>                 :             :         enum class ShellState { IDLE, RUNNING };</span>
-<span id="L215"><span class="lineNum">     215</span>                 :             :         std::atomic&lt;ShellState&gt; shell_state_{ShellState::IDLE};</span>
-<span id="L216"><span class="lineNum">     216</span>                 :             :         std::chrono::steady_clock::time_point last_command_time_;  ///&lt; Debounce timer</span>
-<span id="L217"><span class="lineNum">     217</span>                 :             :         </span>
-<span id="L218"><span class="lineNum">     218</span>                 :             :         // =====================================================================</span>
-<span id="L219"><span class="lineNum">     219</span>                 :             :         // COMMAND HISTORY (File-Based + Arrow Navigation)</span>
-<span id="L220"><span class="lineNum">     220</span>                 :             :         // =====================================================================</span>
-<span id="L221"><span class="lineNum">     221</span>                 :             :         // DAIS-managed history persisted to ~/.dais_history.</span>
-<span id="L222"><span class="lineNum">     222</span>                 :             :         // Arrow keys navigate DAIS history when shell is IDLE.</span>
-<span id="L223"><span class="lineNum">     223</span>                 :             :         // Shows original commands (e.g., 'ls' not 'ls -1').</span>
-<span id="L224"><span class="lineNum">     224</span>                 :             :         </span>
-<span id="L225"><span class="lineNum">     225</span>                 :             :         std::deque&lt;std::string&gt; command_history_;   ///&lt; In-memory buffer</span>
-<span id="L226"><span class="lineNum">     226</span>                 :             :         std::filesystem::path history_file_;        ///&lt; ~/.dais_history</span>
-<span id="L227"><span class="lineNum">     227</span>                 :             :         size_t history_index_ = 0;                  ///&lt; Current position in history</span>
-<span id="L228"><span class="lineNum">     228</span>                 :             :         std::string history_stash_;                 ///&lt; Stashes current line when navigating</span>
-<span id="L229"><span class="lineNum">     229</span>                 :             :         bool history_navigated_ = false;            ///&lt; True if arrow navigation was used</span>
-<span id="L230"><span class="lineNum">     230</span>                 :             :         bool tab_used_ = false;                      ///&lt; True if Tab was used (accumulator unreliable)</span>
-<span id="L231"><span class="lineNum">     231</span>                 :             :         bool skipping_osc_ = false;                 ///&lt; True if we are in the middle of skipping an OSC sequence</span>
-<span id="L232"><span class="lineNum">     232</span>                 :             :         size_t cursor_pos_ = 0;                     ///&lt; Index in input_accumulator_ for editable prompt</span>
-<span id="L233"><span class="lineNum">     233</span>                 :             :         std::atomic&lt;int&gt; terminal_cols_{80};        ///&lt; Current terminal width</span>
-<span id="L234"><span class="lineNum">     234</span>                 :             :         int initial_prompt_cols_ = 0;              ///&lt; Prompt width when visual mode started</span>
-<span id="L235"><span class="lineNum">     235</span>                 :             :         bool was_visual_mode_ = false;              ///&lt; For detecting entry into visual mode</span>
-<span id="L236"><span class="lineNum">     236</span>                 :             :         bool bracketed_paste_active_ = false;       ///&lt; True if we are inside a \e[200~ ... \e[201~ block</span>
-<span id="L237"><span class="lineNum">     237</span>                 :             :         std::string paste_accumulator_;             ///&lt; Local buffer for pasted text</span>
-<span id="L238"><span class="lineNum">     238</span>                 :             :         std::atomic&lt;bool&gt; in_more_pager_{false};    ///&lt; True when &quot;--More--&quot; is detected (for arrow key translation)</span>
-<span id="L239"><span class="lineNum">     239</span>                 :             :         static constexpr size_t MAX_HISTORY = 1000; ///&lt; Max stored commands (like bash)</span>
-<span id="L240"><span class="lineNum">     240</span>                 :             :         </span>
-<span id="L241"><span class="lineNum">     241</span>                 :             :         bool is_internal_command(const std::string&amp; line); ///&lt; Helper to identify :commands</span>
-<span id="L242"><span class="lineNum">     242</span>                 :             :         void process_paste_block();                 ///&lt; Handles dispatching of buffered paste data</span>
-<span id="L243"><span class="lineNum">     243</span>                 :             :         void visual_move_cursor(int old_pos, int new_pos); ///&lt; Multi-line aware cursor movement</span>
-<span id="L244"><span class="lineNum">     244</span>                 :             :         int calculate_visual_length(const std::string&amp; buffer); ///&lt; Helper to get visual width of string</span>
-<span id="L245"><span class="lineNum">     245</span>                 :             :         void ensure_visual_mode_init(int offset_already_in_buffer = 0); ///&lt; Safeguard for prompt width tracking</span>
-<span id="L246"><span class="lineNum">     246</span>                 :             :         </span>
-<span id="L247"><span class="lineNum">     247</span>                 :             :         void load_history();                        ///&lt; Load from file on startup</span>
-<span id="L248"><span class="lineNum">     248</span>                 :             :         void save_history_entry(const std::string&amp; cmd);  ///&lt; Append to file</span>
-<span id="L249"><span class="lineNum">     249</span>                 :             : </span>
-<span id="L250"><span class="lineNum">     250</span>                 :             :         struct CursorRecovery {</span>
-<span id="L251"><span class="lineNum">     251</span>                 :             :             std::string command;</span>
-<span id="L252"><span class="lineNum">     252</span>                 :             :             int cursor_idx;</span>
-<span id="L253"><span class="lineNum">     253</span>                 :             :         };</span>
-<span id="L254"><span class="lineNum">     254</span>                 :             :         CursorRecovery recover_cmd_from_buffer(const std::string&amp; buffer); ///&lt; Helper to recover command and cursor</span>
-<span id="L255"><span class="lineNum">     255</span>                 :             :         void show_history(const std::string&amp; args); ///&lt; Handle :history command</span>
-<span id="L256"><span class="lineNum">     256</span>                 :             :         void navigate_history(int direction, std::string&amp; current_line); ///&lt; Arrow key nav</span>
-<span id="L257"><span class="lineNum">     257</span>                 :             :         </span>
-<span id="L258"><span class="lineNum">     258</span>                 :             :         /**</span>
-<span id="L259"><span class="lineNum">     259</span>                 :             :          * @brief Syncs visual-only history content to the shell.</span>
-<span id="L260"><span class="lineNum">     260</span>                 :             :          * </span>
-<span id="L261"><span class="lineNum">     261</span>                 :             :          * When user navigates DAIS history (Up/Down), changes are visual-only.</span>
-<span id="L262"><span class="lineNum">     262</span>                 :             :          * Before the shell can process edits (arrows, backspace, typing), we must</span>
-<span id="L263"><span class="lineNum">     263</span>                 :             :          * sync the content. This helper centralizes that logic.</span>
+<span id="L211"><span class="lineNum">     211</span>                 :             :         // SHELL STATE (Prompt-Based Detection)</span>
+<span id="L212"><span class="lineNum">     212</span>                 :             :         // =====================================================================</span>
+<span id="L213"><span class="lineNum">     213</span>                 :             :         // Track shell state based on events.</span>
+<span id="L214"><span class="lineNum">     214</span>                 :             :         // IDLE = at prompt (matches shell_prompts config), RUNNING = command executing.</span>
+<span id="L215"><span class="lineNum">     215</span>                 :             :         </span>
+<span id="L216"><span class="lineNum">     216</span>                 :             :         enum class ShellState { IDLE, RUNNING };</span>
+<span id="L217"><span class="lineNum">     217</span>                 :             :         std::atomic&lt;ShellState&gt; shell_state_{ShellState::IDLE};</span>
+<span id="L218"><span class="lineNum">     218</span>                 :             :         std::atomic&lt;bool&gt; synced_with_shell_{true};  ///&lt; True if we are confident in shell state (False forces prompt hunt)</span>
+<span id="L219"><span class="lineNum">     219</span>                 :             :         bool first_prompt_seen_ = false;              ///&lt; Startup logo logic</span>
+<span id="L220"><span class="lineNum">     220</span>                 :             :         std::chrono::steady_clock::time_point last_command_time_;  ///&lt; Debounce timer</span>
+<span id="L221"><span class="lineNum">     221</span>                 :             :         </span>
+<span id="L222"><span class="lineNum">     222</span>                 :             :         // =====================================================================</span>
+<span id="L223"><span class="lineNum">     223</span>                 :             :         // COMMAND HISTORY (File-Based + Arrow Navigation)</span>
+<span id="L224"><span class="lineNum">     224</span>                 :             :         // =====================================================================</span>
+<span id="L225"><span class="lineNum">     225</span>                 :             :         // DAIS-managed history persisted to ~/.dais_history.</span>
+<span id="L226"><span class="lineNum">     226</span>                 :             :         // Arrow keys navigate DAIS history when shell is IDLE.</span>
+<span id="L227"><span class="lineNum">     227</span>                 :             :         // Shows original commands (e.g., 'ls' not 'ls -1').</span>
+<span id="L228"><span class="lineNum">     228</span>                 :             :         </span>
+<span id="L229"><span class="lineNum">     229</span>                 :             :         std::deque&lt;std::string&gt; command_history_;   ///&lt; In-memory buffer</span>
+<span id="L230"><span class="lineNum">     230</span>                 :             :         std::filesystem::path history_file_;        ///&lt; ~/.dais_history</span>
+<span id="L231"><span class="lineNum">     231</span>                 :             :         size_t history_index_ = 0;                  ///&lt; Current position in history</span>
+<span id="L232"><span class="lineNum">     232</span>                 :             :         std::string history_stash_;                 ///&lt; Stashes current line when navigating</span>
+<span id="L233"><span class="lineNum">     233</span>                 :             :         std::atomic&lt;bool&gt; history_navigated_{false};///&lt; True if arrow navigation was used</span>
+<span id="L234"><span class="lineNum">     234</span>                 :             :         std::atomic&lt;bool&gt; tab_used_{false};         ///&lt; True if Tab was used (accumulator unreliable)</span>
+<span id="L235"><span class="lineNum">     235</span>                 :             :         bool skipping_osc_ = false;                 ///&lt; True if we are in the middle of skipping an OSC sequence</span>
+<span id="L236"><span class="lineNum">     236</span>                 :             :         size_t cursor_pos_ = 0;                     ///&lt; Index in input_accumulator_ for editable prompt</span>
+<span id="L237"><span class="lineNum">     237</span>                 :             :         std::atomic&lt;int&gt; terminal_cols_{80};        ///&lt; Current terminal width</span>
+<span id="L238"><span class="lineNum">     238</span>                 :             :         int initial_prompt_cols_ = 0;              ///&lt; Prompt width when visual mode started</span>
+<span id="L239"><span class="lineNum">     239</span>                 :             :         bool was_visual_mode_ = false;              ///&lt; For detecting entry into visual mode</span>
+<span id="L240"><span class="lineNum">     240</span>                 :             :         bool bracketed_paste_active_ = false;       ///&lt; True if we are inside a \e[200~ ... \e[201~ block</span>
+<span id="L241"><span class="lineNum">     241</span>                 :             :         std::string paste_accumulator_;             ///&lt; Local buffer for pasted text</span>
+<span id="L242"><span class="lineNum">     242</span>                 :             :         std::atomic&lt;bool&gt; in_more_pager_{false};    ///&lt; True when &quot;--More--&quot; is detected (for arrow key translation)</span>
+<span id="L243"><span class="lineNum">     243</span>                 :             :         static constexpr size_t MAX_HISTORY = 1000; ///&lt; Max stored commands (like bash)</span>
+<span id="L244"><span class="lineNum">     244</span>                 :             :         </span>
+<span id="L245"><span class="lineNum">     245</span>                 :             :         bool is_internal_command(const std::string&amp; line); ///&lt; Helper to identify :commands</span>
+<span id="L246"><span class="lineNum">     246</span>                 :             :         void process_paste_block();                 ///&lt; Handles dispatching of buffered paste data</span>
+<span id="L247"><span class="lineNum">     247</span>                 :             :         void visual_move_cursor(int old_pos, int new_pos); ///&lt; Multi-line aware cursor movement</span>
+<span id="L248"><span class="lineNum">     248</span>                 :             :         int calculate_visual_length(const std::string&amp; buffer); ///&lt; Helper to get visual width of string</span>
+<span id="L249"><span class="lineNum">     249</span>                 :             :         void ensure_visual_mode_init(int offset_already_in_buffer = 0); ///&lt; Safeguard for prompt width tracking</span>
+<span id="L250"><span class="lineNum">     250</span>                 :             :         </span>
+<span id="L251"><span class="lineNum">     251</span>                 :             :         void load_history();                        ///&lt; Load from file on startup</span>
+<span id="L252"><span class="lineNum">     252</span>                 :             :         void save_history_entry(const std::string&amp; cmd);  ///&lt; Append to file</span>
+<span id="L253"><span class="lineNum">     253</span>                 :             : </span>
+<span id="L254"><span class="lineNum">     254</span>                 :             :         struct CursorRecovery {</span>
+<span id="L255"><span class="lineNum">     255</span>                 :             :             std::string command;</span>
+<span id="L256"><span class="lineNum">     256</span>                 :             :             int cursor_idx;</span>
+<span id="L257"><span class="lineNum">     257</span>                 :             :         };</span>
+<span id="L258"><span class="lineNum">     258</span>                 :             :         CursorRecovery recover_cmd_from_buffer(const std::string&amp; buffer); ///&lt; Helper to recover command and cursor</span>
+<span id="L259"><span class="lineNum">     259</span>                 :             :         void show_history(const std::string&amp; args); ///&lt; Handle :history command</span>
+<span id="L260"><span class="lineNum">     260</span>                 :             :         void navigate_history(int direction, std::string&amp; current_line); ///&lt; Arrow key nav</span>
+<span id="L261"><span class="lineNum">     261</span>                 :             :         </span>
+<span id="L262"><span class="lineNum">     262</span>                 :             :         /**</span>
+<span id="L263"><span class="lineNum">     263</span>                 :             :          * @brief Syncs visual-only history content to the shell.</span>
 <span id="L264"><span class="lineNum">     264</span>                 :             :          * </span>
-<span id="L265"><span class="lineNum">     265</span>                 :             :          * @param accumulator The current command buffer to sync</span>
-<span id="L266"><span class="lineNum">     266</span>                 :             :          * @return true if sync was performed, false if not needed</span>
-<span id="L267"><span class="lineNum">     267</span>                 :             :          */</span>
-<span id="L268"><span class="lineNum">     268</span>                 :             :         bool sync_history_to_shell(std::string&amp; accumulator);</span>
-<span id="L269"><span class="lineNum">     269</span>                 :             : </span>
-<span id="L270"><span class="lineNum">     270</span>                 :             :         </span>
-<span id="L271"><span class="lineNum">     271</span>                 :             :         /**</span>
-<span id="L272"><span class="lineNum">     272</span>                 :             :          * @brief Handles the execution of the :db command module.</span>
-<span id="L273"><span class="lineNum">     273</span>                 :             :          * Bridges C++ engine with Python db_handler.</span>
-<span id="L274"><span class="lineNum">     274</span>                 :             :          */</span>
-<span id="L275"><span class="lineNum">     275</span>                 :             :         void handle_db_command(const std::string&amp; query);</span>
-<span id="L276"><span class="lineNum">     276</span>                 :             :         </span>
-<span id="L277"><span class="lineNum">     277</span>                 :             :         // =====================================================================</span>
-<span id="L278"><span class="lineNum">     278</span>                 :             :         // REMOTE SESSION STATE (SSH)</span>
-<span id="L279"><span class="lineNum">     279</span>                 :             :         // =====================================================================</span>
-<span id="L280"><span class="lineNum">     280</span>                 :             :         bool is_remote_session_ = false;       ///&lt; True if foreground is ssh/scp</span>
-<span id="L281"><span class="lineNum">     281</span>                 :             :         bool remote_agent_deployed_ = false;   ///&lt; True if we successfully injected the agent</span>
-<span id="L282"><span class="lineNum">     282</span>                 :             :         std::string remote_arch_ = &quot;&quot;;         ///&lt; Detected remote architecture (uname -m)</span>
-<span id="L283"><span class="lineNum">     283</span>                 :             :         std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks</span>
-<span id="L284"><span class="lineNum">     284</span>                 :             : </span>
-<span id="L285"><span class="lineNum">     285</span>                 :             :         void check_remote_session();           ///&lt; Updates is_remote_session_ based on FG process</span>
-<span id="L286"><span class="lineNum">     286</span>                 :             :         void deploy_remote_agent();            ///&lt; Injects binary if missing</span>
-<span id="L287"><span class="lineNum">     287</span>                 :             : </span>
-<span id="L288"><span class="lineNum">     288</span>                 :             :         int remote_session_pid_ = -1;          ///&lt; PID of the current SSH process (for sticky detection)</span>
-<span id="L289"><span class="lineNum">     289</span>                 :             : </span>
-<span id="L290"><span class="lineNum">     290</span>                 :             :         // =====================================================================</span>
-<span id="L291"><span class="lineNum">     291</span>                 :             :         // OUTPUT CAPTURING (For Remote Commands)</span>
-<span id="L292"><span class="lineNum">     292</span>                 :             :         // =====================================================================</span>
-<span id="L293"><span class="lineNum">     293</span>                 :             :         // Allows the main thread to capture PTY output temporarily.</span>
-<span id="L294"><span class="lineNum">     294</span>                 :             :         std::atomic&lt;bool&gt; capture_mode_ = false;</span>
-<span id="L295"><span class="lineNum">     295</span>                 :             :         std::string capture_buffer_;</span>
-<span id="L296"><span class="lineNum">     296</span>                 :             :         std::mutex capture_mutex_;</span>
-<span id="L297"><span class="lineNum">     297</span>                 :             :         std::condition_variable capture_cv_;</span>
-<span id="L298"><span class="lineNum">     298</span>                 :             :         </span>
-<span id="L299"><span class="lineNum">     299</span>                 :             :         // --- AUTO-DEPLOYMENT STATE ---</span>
-<span id="L300"><span class="lineNum">     300</span>                 :             :         std::atomic&lt;bool&gt; pending_remote_deployment_{false};</span>
-<span id="L301"><span class="lineNum">     301</span>                 :             :         std::atomic&lt;bool&gt; ready_to_deploy_{false};</span>
-<span id="L302"><span class="lineNum">     302</span>                 :             :         std::atomic&lt;bool&gt; in_alt_screen_{false};</span>
-<span id="L303"><span class="lineNum">     303</span>                 :             :         std::atomic&lt;bool&gt; synced_with_shell_{false};  ///&lt; Prevents race conditions by tracking if local buffer matches shell input</span>
-<span id="L304"><span class="lineNum">     304</span>                 :             :         std::atomic&lt;int&gt; cached_prompt_width_{-1};    ///&lt; Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers</span>
-<span id="L305"><span class="lineNum">     305</span>                 :             :         bool intentionally_cleared_{false};           ///&lt; Prevents &quot;ghost&quot; history adoption when user explicitly clears the line</span>
-<span id="L306"><span class="lineNum">     306</span>                 :             :         std::string last_remote_prompt_;              ///&lt; Stores the prompt swallowed by execute_remote_command for later restoration</span>
-<span id="L307"><span class="lineNum">     307</span>                 :             :         </span>
-<span id="L308"><span class="lineNum">     308</span>                 :             :         /**</span>
-<span id="L309"><span class="lineNum">     309</span>                 :             :          * @brief Executes a command on the remote shell and captures output.</span>
-<span id="L310"><span class="lineNum">     310</span>                 :             :          * Blocks until the end sentinel is found or timeout.</span>
-<span id="L311"><span class="lineNum">     311</span>                 :             :          */</span>
-<span id="L312"><span class="lineNum">     312</span>                 :             :         std::string execute_remote_command(const std::string&amp; cmd, int timeout_ms = 2000);</span>
-<span id="L313"><span class="lineNum">     313</span>                 :             :         </span>
-<span id="L314"><span class="lineNum">     314</span>                 :             :         /**</span>
-<span id="L315"><span class="lineNum">     315</span>                 :             :          * @brief Handles the complex logic of intercepting and executing 'ls' on a remote host.</span>
-<span id="L316"><span class="lineNum">     316</span>                 :             :          * Incorporates agent deployment, fallback to Python, and output rendering.</span>
-<span id="L317"><span class="lineNum">     317</span>                 :             :          */</span>
-<span id="L318"><span class="lineNum">     318</span>                 :             :         void handle_remote_ls(const handlers::LSArgs&amp; ls_args, const std::string&amp; original_cmd);</span>
-<span id="L319"><span class="lineNum">     319</span>                 :             :         </span>
-<span id="L320"><span class="lineNum">     320</span>                 :             :         bool remote_db_deployed_ = false;       ///&lt; True if db_handler.py is on remote</span>
-<span id="L321"><span class="lineNum">     321</span>                 :             :         void deploy_remote_db_handler();       ///&lt; Injects python script if missing</span>
+<span id="L265"><span class="lineNum">     265</span>                 :             :          * When user navigates DAIS history (Up/Down), changes are visual-only.</span>
+<span id="L266"><span class="lineNum">     266</span>                 :             :          * Before the shell can process edits (arrows, backspace, typing), we must</span>
+<span id="L267"><span class="lineNum">     267</span>                 :             :          * sync the content. This helper centralizes that logic.</span>
+<span id="L268"><span class="lineNum">     268</span>                 :             :          * </span>
+<span id="L269"><span class="lineNum">     269</span>                 :             :          * @param accumulator The current command buffer to sync</span>
+<span id="L270"><span class="lineNum">     270</span>                 :             :          * @return true if sync was performed, false if not needed</span>
+<span id="L271"><span class="lineNum">     271</span>                 :             :          */</span>
+<span id="L272"><span class="lineNum">     272</span>                 :             :         bool sync_history_to_shell(std::string&amp; accumulator);</span>
+<span id="L273"><span class="lineNum">     273</span>                 :             : </span>
+<span id="L274"><span class="lineNum">     274</span>                 :             :         </span>
+<span id="L275"><span class="lineNum">     275</span>                 :             :         /**</span>
+<span id="L276"><span class="lineNum">     276</span>                 :             :          * @brief Handles the execution of the :db command module.</span>
+<span id="L277"><span class="lineNum">     277</span>                 :             :          * Bridges C++ engine with Python db_handler.</span>
+<span id="L278"><span class="lineNum">     278</span>                 :             :          */</span>
+<span id="L279"><span class="lineNum">     279</span>                 :             :         void handle_db_command(const std::string&amp; query);</span>
+<span id="L280"><span class="lineNum">     280</span>                 :             :         </span>
+<span id="L281"><span class="lineNum">     281</span>                 :             :         // =====================================================================</span>
+<span id="L282"><span class="lineNum">     282</span>                 :             :         // REMOTE SESSION STATE (SSH)</span>
+<span id="L283"><span class="lineNum">     283</span>                 :             :         // =====================================================================</span>
+<span id="L284"><span class="lineNum">     284</span>                 :             :         std::atomic&lt;bool&gt; is_remote_session_{false};       ///&lt; True if foreground is ssh/scp</span>
+<span id="L285"><span class="lineNum">     285</span>                 :             :         bool remote_agent_deployed_ = false;   ///&lt; True if we successfully injected the agent</span>
+<span id="L286"><span class="lineNum">     286</span>                 :             :         std::string remote_arch_ = &quot;&quot;;         ///&lt; Detected remote architecture (uname -m)</span>
+<span id="L287"><span class="lineNum">     287</span>                 :             :         std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks</span>
+<span id="L288"><span class="lineNum">     288</span>                 :             : </span>
+<span id="L289"><span class="lineNum">     289</span>                 :             :         void check_remote_session();           ///&lt; Updates is_remote_session_ based on FG process</span>
+<span id="L290"><span class="lineNum">     290</span>                 :             :         void deploy_remote_agent();            ///&lt; Injects binary if missing</span>
+<span id="L291"><span class="lineNum">     291</span>                 :             : </span>
+<span id="L292"><span class="lineNum">     292</span>                 :             :         int remote_session_pid_ = -1;          ///&lt; PID of the current SSH process (for sticky detection)</span>
+<span id="L293"><span class="lineNum">     293</span>                 :             : </span>
+<span id="L294"><span class="lineNum">     294</span>                 :             :         // =====================================================================</span>
+<span id="L295"><span class="lineNum">     295</span>                 :             :         // OUTPUT CAPTURING (For Remote Commands)</span>
+<span id="L296"><span class="lineNum">     296</span>                 :             :         // =====================================================================</span>
+<span id="L297"><span class="lineNum">     297</span>                 :             :         // Allows the main thread to capture PTY output temporarily.</span>
+<span id="L298"><span class="lineNum">     298</span>                 :             :         std::atomic&lt;bool&gt; capture_mode_ = false;</span>
+<span id="L299"><span class="lineNum">     299</span>                 :             :         std::string capture_buffer_;</span>
+<span id="L300"><span class="lineNum">     300</span>                 :             :         std::mutex capture_mutex_;</span>
+<span id="L301"><span class="lineNum">     301</span>                 :             :         std::condition_variable capture_cv_;</span>
+<span id="L302"><span class="lineNum">     302</span>                 :             :         </span>
+<span id="L303"><span class="lineNum">     303</span>                 :             :         // --- AUTO-DEPLOYMENT STATE ---</span>
+<span id="L304"><span class="lineNum">     304</span>                 :             :         std::atomic&lt;bool&gt; pending_remote_deployment_{false};</span>
+<span id="L305"><span class="lineNum">     305</span>                 :             :         std::atomic&lt;bool&gt; ready_to_deploy_{false};</span>
+<span id="L306"><span class="lineNum">     306</span>                 :             :         std::atomic&lt;bool&gt; in_alt_screen_{false};</span>
+<span id="L307"><span class="lineNum">     307</span>                 :             :         std::atomic&lt;int&gt; cached_prompt_width_{-1};    ///&lt; Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers</span>
+<span id="L308"><span class="lineNum">     308</span>                 :             :         bool intentionally_cleared_{false};           ///&lt; Prevents &quot;ghost&quot; history adoption when user explicitly clears the line</span>
+<span id="L309"><span class="lineNum">     309</span>                 :             :         std::string last_remote_prompt_;              ///&lt; Stores the prompt swallowed by execute_remote_command for later restoration</span>
+<span id="L310"><span class="lineNum">     310</span>                 :             :         </span>
+<span id="L311"><span class="lineNum">     311</span>                 :             :         /**</span>
+<span id="L312"><span class="lineNum">     312</span>                 :             :          * @brief Executes a command on the remote shell and captures output.</span>
+<span id="L313"><span class="lineNum">     313</span>                 :             :          * Blocks until the end sentinel is found or timeout.</span>
+<span id="L314"><span class="lineNum">     314</span>                 :             :          */</span>
+<span id="L315"><span class="lineNum">     315</span>                 :             :         std::string execute_remote_command(const std::string&amp; cmd, int timeout_ms = 2000);</span>
+<span id="L316"><span class="lineNum">     316</span>                 :             :         </span>
+<span id="L317"><span class="lineNum">     317</span>                 :             :         /**</span>
+<span id="L318"><span class="lineNum">     318</span>                 :             :          * @brief Handles the complex logic of intercepting and executing 'ls' on a remote host.</span>
+<span id="L319"><span class="lineNum">     319</span>                 :             :          * Incorporates agent deployment, fallback to Python, and output rendering.</span>
+<span id="L320"><span class="lineNum">     320</span>                 :             :          */</span>
+<span id="L321"><span class="lineNum">     321</span>                 :             :         void handle_remote_ls(const handlers::LSArgs&amp; ls_args, const std::string&amp; original_cmd);</span>
 <span id="L322"><span class="lineNum">     322</span>                 :             :         </span>
-<span id="L323"><span class="lineNum">     323</span>                 :             :         // =====================================================================</span>
-<span id="L324"><span class="lineNum">     324</span>                 :             :         // LESS PAGER AVAILABILITY (For Remote Sessions)</span>
-<span id="L325"><span class="lineNum">     325</span>                 :             :         // =====================================================================</span>
-<span id="L326"><span class="lineNum">     326</span>                 :             :         bool less_checked_ = false;             ///&lt; True if we've checked for less</span>
-<span id="L327"><span class="lineNum">     327</span>                 :             :         bool less_available_ = true;            ///&lt; True if less is available (default optimistic)</span>
-<span id="L328"><span class="lineNum">     328</span>                 :             :         </span>
-<span id="L329"><span class="lineNum">     329</span>                 :             :         /**</span>
-<span id="L330"><span class="lineNum">     330</span>                 :             :          * @brief Checks if 'less' is available on remote and offers to install if not.</span>
-<span id="L331"><span class="lineNum">     331</span>                 :             :          * @return True if less is available (or was installed), false to use cat fallback.</span>
-<span id="L332"><span class="lineNum">     332</span>                 :             :          */</span>
-<span id="L333"><span class="lineNum">     333</span>                 :             :         bool check_and_offer_less_install();</span>
-<span id="L334"><span class="lineNum">     334</span>                 :             :     };</span>
-<span id="L335"><span class="lineNum">     335</span>                 :             : }</span>
+<span id="L323"><span class="lineNum">     323</span>                 :             :         bool remote_db_deployed_ = false;       ///&lt; True if db_handler.py is on remote</span>
+<span id="L324"><span class="lineNum">     324</span>                 :             :         void deploy_remote_db_handler();       ///&lt; Injects python script if missing</span>
+<span id="L325"><span class="lineNum">     325</span>                 :             :         </span>
+<span id="L326"><span class="lineNum">     326</span>                 :             :         // =====================================================================</span>
+<span id="L327"><span class="lineNum">     327</span>                 :             :         // LESS PAGER AVAILABILITY (For Remote Sessions)</span>
+<span id="L328"><span class="lineNum">     328</span>                 :             :         // =====================================================================</span>
+<span id="L329"><span class="lineNum">     329</span>                 :             :         bool less_checked_ = false;             ///&lt; True if we've checked for less</span>
+<span id="L330"><span class="lineNum">     330</span>                 :             :         bool less_available_ = true;            ///&lt; True if less is available (default optimistic)</span>
+<span id="L331"><span class="lineNum">     331</span>                 :             :         </span>
+<span id="L332"><span class="lineNum">     332</span>                 :             :         /**</span>
+<span id="L333"><span class="lineNum">     333</span>                 :             :          * @brief Checks if 'less' is available on remote and offers to install if not.</span>
+<span id="L334"><span class="lineNum">     334</span>                 :             :          * @return True if less is available (or was installed), false to use cat fallback.</span>
+<span id="L335"><span class="lineNum">     335</span>                 :             :          */</span>
+<span id="L336"><span class="lineNum">     336</span>                 :             :         bool check_and_offer_less_install();</span>
+<span id="L337"><span class="lineNum">     337</span>                 :             :     };</span>
+<span id="L338"><span class="lineNum">     338</span>                 :             : }</span>
         </pre>
               </td>
             </tr>

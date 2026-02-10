@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-04 18:56:14</td>
+            <td class="headerValue">2026-02-10 02:35:41</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
@@ -102,8 +102,8 @@
 <span id="L24"><span class="lineNum">      24</span>                 :             :         void resize(int rows, int cols, bool show_logo);</span>
 <span id="L25"><span class="lineNum">      25</span>                 :             : </span>
 <span id="L26"><span class="lineNum">      26</span>                 :             :         // Getters</span>
-<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC tlaBgGNC">         111 :         [[nodiscard]] int get_master_fd() const { return master_fd_; }</span></span>
-<span id="L28"><span class="lineNum">      28</span>                 :<span class="tlaGNC">          38 :         [[nodiscard]] pid_t get_child_pid() const { return child_pid_; }</span></span>
+<span id="L27"><span class="lineNum">      27</span>                 :<span class="tlaGNC tlaBgGNC">         132 :         [[nodiscard]] int get_master_fd() const { return master_fd_; }</span></span>
+<span id="L28"><span class="lineNum">      28</span>                 :<span class="tlaGNC">          41 :         [[nodiscard]] pid_t get_child_pid() const { return child_pid_; }</span></span>
 <span id="L29"><span class="lineNum">      29</span>                 :             :         </span>
 <span id="L30"><span class="lineNum">      30</span>                 :             :         /**</span>
 <span id="L31"><span class="lineNum">      31</span>                 :             :          * @brief Checks if the shell is idle (at prompt, no foreground child).</span>
@@ -111,11 +111,11 @@
 <span id="L33"><span class="lineNum">      33</span>                 :             :          * If it matches the shell's PID, no child (vim, python, etc.) is running.</span>
 <span id="L34"><span class="lineNum">      34</span>                 :             :          * @return true if shell is idle, false if a child process is in foreground</span>
 <span id="L35"><span class="lineNum">      35</span>                 :             :          */</span>
-<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">        2248 :         [[nodiscard]] bool is_shell_idle() const {</span></span>
-<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">        2248 :             pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
+<span id="L36"><span class="lineNum">      36</span>                 :<span class="tlaGNC">         792 :         [[nodiscard]] bool is_shell_idle() const {</span></span>
+<span id="L37"><span class="lineNum">      37</span>                 :<span class="tlaGNC">         792 :             pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
 <span id="L38"><span class="lineNum">      38</span>                 :             :             // If fg_pgrp matches the shell's process group, shell is idle</span>
 <span id="L39"><span class="lineNum">      39</span>                 :             :             // getpgid(child_pid_) gets the shell's process group</span>
-<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">        2248 :             return fg_pgrp == getpgid(child_pid_);</span></span>
+<span id="L40"><span class="lineNum">      40</span>                 :<span class="tlaGNC">         792 :             return fg_pgrp == getpgid(child_pid_);</span></span>
 <span id="L41"><span class="lineNum">      41</span>                 :             :         }</span>
 <span id="L42"><span class="lineNum">      42</span>                 :             : </span>
 <span id="L43"><span class="lineNum">      43</span>                 :             :         /**</span>
