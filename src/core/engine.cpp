@@ -1812,9 +1812,7 @@ namespace dais::core {
                 " except:pass\n"
                 "print('DAIS_JSON_START')\n" 
                 "print(json.dumps(L, separators=(',', ':')))";
-                
-                "print(json.dumps(L, separators=(',', ':')))";
-                
+                                
             // Stealth Execution: Pipe Base64 script to python3 to avoid process list exposure
             // echo "<B64>" | base64 -d | python3 - <args>
             std::string py_b64 = dais::core::base64_encode(reinterpret_cast<const unsigned char*>(py_script.c_str()), py_script.size());

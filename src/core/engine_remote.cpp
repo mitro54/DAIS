@@ -135,7 +135,10 @@ namespace dais::core {
 
         if (finished) {
             // Prompt-Aware Buffering: Wait for the shell prompt to appear after the sentinel.
-            capture_cv_.wait_for(lock, std::chrono::milliseconds(1000), [&]{
+            // We use a short timeout (50ms) because for local/fast connections the prompt 
+            // usually arrives immediately after the command output. 
+            // Should not wait 1s as it creates noticeable lag if the prompt detection fails.
+            capture_cv_.wait_for(lock, std::chrono::milliseconds(10), [&]{
                 if (capture_buffer_.empty()) return false;
                 char last = capture_buffer_.back();
                 if (last == '\n' || last == '\r') return false;
@@ -285,13 +288,16 @@ namespace dais::core {
         };
 
         for (const auto& base_dir : base_dirs) {
-            // A. Check Writability (and create dir)
+            // A. Check Writability AND Tools (base64)
             // We use 'echo OK' to confirm success because exit codes are harder to trap cleanly in all shells
-            std::string check_cmd = "mkdir -p -m 700 " + base_dir + " >/dev/null 2>&1 && touch " + base_dir + "/.perm_check >/dev/null 2>&1 && rm " + base_dir + "/.perm_check >/dev/null 2>&1 && echo DAIS_OK";
+            // Also check for base64 availability
+            std::string check_cmd = "command -v base64 >/dev/null 2>&1 && mkdir -p -m 700 " + base_dir + " >/dev/null 2>&1 && touch " + base_dir + "/.perm_check >/dev/null 2>&1 && rm " + base_dir + "/.perm_check >/dev/null 2>&1 && echo DAIS_OK";
             std::string check_res = execute_remote_command(check_cmd, 2000);
             
             if (check_res.find("DAIS_OK") == std::string::npos) {
-                continue; // Cannot write here, try next
+                // If failed, it might be permissions OR missing base64.
+                // We'll skip silently to next dir, but if it ends up failing all, the final error captures it.
+                continue; 
             }
 
             // B. Define Target Path (Deterministic Naming)
@@ -315,7 +321,10 @@ namespace dais::core {
             }
 
             // C. Integrity Check
-            if (!current_hash.empty() && current_hash == agent.hash) {
+            // We search for the hash because 'execute_remote_command' might capture 
+            // the command echo (e.g. "sha256sum ...") depending on shell behavior, 
+            // making strict equality fail.
+            if (!current_hash.empty() && current_hash.find(agent.hash) != std::string::npos) {
                 // Bin exists and matches hash. Check if executable.
                 // We'll just try running version check immediately.
                 need_deploy = false;
@@ -335,26 +344,79 @@ namespace dais::core {
                 // Transfer
                 execute_remote_command("rm -f " + temp_b64, 2000); 
                 
-                // Prevent history pollution & echo
-                // We use 'set +o history' to stop the shell from recording the massive heredoc
+                // Prevent history pollution & echo & prompts
                 execute_remote_command("set +o history", 1000); 
                 execute_remote_command("stty -echo", 2000);
+                // Disable PS2 prompt (continuation prompt) to prevent '> > >' spam
+                execute_remote_command("export PS2=''", 1000);
 
                 // Add leading space to 'cat' for history safety (ignorespace)
                 std::string start_heredoc = " cat > " + temp_b64 + " << 'DAIS_EOF'\n";
                 write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
                 
-                constexpr size_t PAYLOAD_CHUNK = 4096;
+                // BACKGROUND DRAINER
+                // Start a thread to drain the PTY output (echoes, PS2 prompts) while we write.
+                // If we don't drain, the PTY buffer can fill up, causing 'write' to block 
+                // or the remote shell to block on output, leading to severe slowdowns.
+                std::atomic<bool> draining{true};
+                std::thread drainer([&]() {
+                    char buf[4096];
+                    while (draining) {
+                        // Non-blocking read? No, we can't easily set non-blocking on the same FD 
+                        // without affecting the main thread if not careful. 
+                        // Use select/poll with timeout to avoid blocking forever.
+                        fd_set set;
+                        FD_ZERO(&set);
+                        FD_SET(pty_.get_master_fd(), &set);
+                        struct timeval timeout = {0, 10000}; // 10ms
+                        if (select(pty_.get_master_fd() + 1, &set, nullptr, nullptr, &timeout) > 0) {
+                            read(pty_.get_master_fd(), buf, sizeof(buf));
+                        } else {
+                            // Check quit condition even if no data
+                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                        }
+                    }
+                });
+
+                // CHUNKED TRANSMISSION WITH LINE WRAPPING (76 chars)
                 size_t sent = 0;
+                size_t line_len = 0;
+                constexpr size_t MAX_LINE = 76;
+                // Write larger chunks to kernel (4KB) but ensure we insert newlines
+                // We construct a local buffer to minimize write() syscalls
+                std::string write_buffer; 
+                write_buffer.reserve(4096 + 128); 
+
                 while (sent < b64.size()) {
-                    size_t n = std::min(PAYLOAD_CHUNK, b64.size() - sent);
-                    write(pty_.get_master_fd(), b64.data() + sent, n);
-                    sent += n;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                    char c = b64[sent++];
+                    write_buffer += c;
+                    line_len++;
+
+                    if (line_len >= MAX_LINE) {
+                        write_buffer += "\n"; // Explicit newline for shell
+                        line_len = 0;
+                    }
+                    
+                    // Flush buffer when full or done
+                    if (write_buffer.size() >= 4096 || sent == b64.size()) {
+                        write(pty_.get_master_fd(), write_buffer.c_str(), write_buffer.size());
+                        write_buffer.clear();
+                        // Minimal sleep to yield to shell/drainer, avoiding CPU hogging
+                        // but substantially faster than per-line sleep.
+                        std::this_thread::sleep_for(std::chrono::microseconds(100)); 
+                    }
                 }
-                std::string end_heredoc = "\nDAIS_EOF\n";
+                
+                if (line_len > 0) write(pty_.get_master_fd(), "\n", 1); 
+
+                // Use explicit CRLF for EOF
+                std::string end_heredoc = "\r\nDAIS_EOF\r\n";
                 write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
-                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+                
+                // Allow drainer to finish clearing up any trailing echoes
+                std::this_thread::sleep_for(std::chrono::milliseconds(200));
+                draining = false;
+                if (drainer.joinable()) drainer.join();
 
                 execute_remote_command("stty echo", 2000);
                 execute_remote_command("set -o history", 1000); // Restore history
@@ -367,6 +429,9 @@ namespace dais::core {
 
                 std::string result = execute_remote_command(deploy_cmd, 10000);
                 if (result.find("DAIS_DEPLOY_OK") == std::string::npos) {
+                    if (config_.show_logo) {
+                        std::cout << " [FAILED]\r\n    Error output: " << result << "\r\n";
+                    }
                     continue; // Deployment failed (maybe disk full?), try next path
                 }
             }
