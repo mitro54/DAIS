@@ -43,7 +43,9 @@ Beyond the visuals, DAIS is built for performance and extensibility.
 - **Advanced Database Querying**: 
     - **Multi-Engine**: Supports **Postgres**, **MySQL**, **SQLite**, and **DuckDB**.
     - **Zero-Config**: Recursive `.env` discovery & System Environment fallback.
-    - **Auto-Install**: Interactive `(y/N)` prompt to install missing database packages via pip.
+    - **Enterprise-Safe Package Management**: Automatically creates and manages isolated **Python Virtual Environments** (`.venv`) for database drivers, ensuring no pollution of the system Python.
+    - **Project-Root Anchoring**: Intelligently anchors virtual environments to your project's `.env` location (Project Root).
+    - **Hardened Security**: Uses **Base64-encoded SQL proxying** to eliminate shell injection vulnerabilities during remote execution.
     - **Persistence**: Full DDL/DML support (Autocommit enabled) for table creation and updates.
 - **Smart `ls` Command**:
     - **Adaptive Performance**: Uses parallel processing for accelerated analysis of large directories
@@ -89,7 +91,12 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
  
 
 #### Database Querying (`:db`)
-Execute SQL queries directly from the terminal. DAIS auto-detects credentials from your project root.
+Execute SQL queries directly from the terminal. DAIS auto-detects credentials and **anchors them to your project root** (via `.env` discovery).
+
+**Core Reliability:**
+- **Zero-Pollution**: Installs drivers like `psycopg2` or `mysql-connector` into a private `.venv` managed by DAIS. 
+- **Auto-Retry**: If a driver is missing, DAIS offers to set up the environment and re-runs your query automatically upon success.
+- **PTY-Safe**: Handles raw terminal carriage returns and non-blocking prompts for a smooth SSH experience.
 
 **Supported Engines:**
 - **Postgres** & **MySQL** (Requires `.env` or system env vars)
