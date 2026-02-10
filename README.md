@@ -11,9 +11,9 @@
 ---
 
 ### Imagine a better workflow:
-* **How about a standard `ls` command** whose output is fully configurable and sorted by user in any meaningful way? 
-* **How about running the exact same commands on ssh connections**, allowing you to scout remote unknown systems or query their databases with the same ease? 
-* **Don't like the way things look?** Make them look just the way you want them to.
+* How about a standard `ls` command whose output is fully configurable and sorted by user in any meaningful way? 
+* How about running the exact same commands on ssh connections, allowing you to scout remote unknown systems or query their databases with the same ease? 
+* Don't like the way things look? Make them look just the way you want them to.
 
 ---
 
