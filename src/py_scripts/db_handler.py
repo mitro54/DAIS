@@ -458,9 +458,22 @@ def run_query(query, db_type, db_source, adapter_kwargs={}):
                 )
                 
                 added_something = False
+                # Restricted directories (should never contain python libraries)
+                restricted = ["/etc", "/dev", "/boot", "/proc", "/sys", "/root"]
+                
                 for p in output.splitlines():
                     p = p.strip()
-                    if p and os.path.isdir(p) and p not in sys.path:
+                    if not p or not os.path.isabs(p) or not os.path.isdir(p):
+                        continue
+                        
+                    # Basic safety: Ensure path isn't in a sensitive system directory
+                    is_safe = True
+                    for r in restricted:
+                        if p.startswith(r):
+                            is_safe = False
+                            break
+                    
+                    if is_safe and p not in sys.path:
                         sys.path.append(p)
                         added_something = True
                 
@@ -579,14 +592,37 @@ def handle_command(cmd_input, cwd):
         db_type = resolved_config.get("DB_TYPE", "sqlite")
         
         # Priority for default SQlite source:
-        # 1. ~/.dais/dais.db (Created if missing)
-        # 2. current directory .dais.db
-        # 3. :memory: (absolute fallback)
-        default_source = os.path.expanduser("~/.dais/dais.db")
-        if not os.path.exists(os.path.dirname(default_source)):
-            try: os.makedirs(os.path.dirname(default_source), exist_ok=True)
-            except: default_source = ".dais.db"
-            
+        # 1. ~/.dais/dais.db (Standard persistence)
+        # 2. $XDG_RUNTIME_DIR/dais/dais.db (Modern Linux temp)
+        # 3. /tmp/dais-<uid>/dais.db (Fallback temp)
+        # 4. :memory: (Absolute fallback)
+        
+        candidates = [
+            os.path.expanduser("~/.dais/dais.db"),
+            os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "dais", "dais.db"),
+            f"/tmp/dais-{os.getuid()}/dais.db",
+            os.path.join(tempfile.gettempdir(), f"dais-{os.getuid()}.db") # Last ditch effort for any writable temp
+        ]
+        
+        default_source = ":memory:"
+        for path in candidates:
+            try:
+                base_dir = os.path.dirname(path)
+                # Check if base_dir exists
+                if os.path.exists(base_dir):
+                    # It must be a directory and writable
+                    if os.path.isdir(base_dir) and os.access(base_dir, os.W_OK):
+                        default_source = path
+                        break
+                    # If it's a file (blocked), we continue to next candidate
+                else:
+                    # Try to create it
+                    os.makedirs(base_dir, mode=0o700, exist_ok=True)
+                    default_source = path
+                    break
+            except OSError:
+                continue
+                
         db_source = resolved_config.get("DB_SOURCE", default_source)
         
         # Extra args for adapters (host/user/pass)
@@ -611,10 +647,21 @@ def handle_command(cmd_input, cwd):
 # CLI ENTRY POINT (For SSH usage)
 # =============================================================================
 if __name__ == "__main__":
+    import base64
+    
     if len(sys.argv) < 2:
-        print(json.dumps({"status": "error", "message": "Usage: python3 db_handler.py <query>"}))
+        print(json.dumps({"status": "error", "message": "Usage: python3 db_handler.py [--b64-query <b64_str> | <query>]"}))
         sys.exit(1)
         
-    query = sys.argv[1]
+    query = ""
+    if sys.argv[1] == "--b64-query" and len(sys.argv) > 2:
+        try:
+            query = base64.b64decode(sys.argv[2]).decode('utf-8')
+        except Exception as e:
+            print(json.dumps({"status": "error", "message": f"Failed to decode B64 query: {str(e)}"}))
+            sys.exit(1)
+    else:
+        query = sys.argv[1]
+        
     cwd = os.getcwd() # In SSH, we run in the user's directory directly
     print(handle_command(query, cwd))

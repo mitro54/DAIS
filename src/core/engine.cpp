@@ -13,6 +13,7 @@
 #include "core/command_handlers.hpp"
 #include "core/config_loader.hpp"
 #include "core/help_text.hpp"
+#include "core/base64.hpp"
 #include <cstdio>
 #include <thread>
 #include <chrono>
@@ -1586,7 +1587,7 @@ namespace dais::core {
                 std::cout << "  Deployed: " << (remote_agent_deployed_ ? (handlers::Theme::SUCCESS + "YES (Binary)" + handlers::Theme::RESET) : (handlers::Theme::WARNING + "NO (Python Fallback)" + handlers::Theme::RESET)) << "\r\n";
                 std::cout << "  Arch: " << remote_arch_ << "\r\n";
                 if (remote_agent_deployed_) {
-                    std::cout << "  Path: ~/.dais/bin/agent_" << remote_arch_ << "\r\n";
+                    std::cout << "  Path: " << remote_bin_path_ << "\r\n";
                 }
             }
             std::cout << std::flush;
@@ -1745,8 +1746,11 @@ namespace dais::core {
 
         if (remote_agent_deployed_) {
             // A. Binary Agent (Preferred / Fast)
-            // \x15 is now handled in execute_remote_command
-            std::string agent_cmd = "~/.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_);
+            // Use the dynamically determined path from deployment
+            std::string agent_cmd = remote_bin_path_.empty() 
+                ? ("~/.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_)) // Fallback (shouldn't happen if deployed true)
+                : remote_bin_path_;
+                
             agent_cmd += (ls_args.show_hidden ? " -a" : "");
             agent_cmd += paths_arg;
             
@@ -1809,8 +1813,14 @@ namespace dais::core {
                 "print('DAIS_JSON_START')\n" 
                 "print(json.dumps(L, separators=(',', ':')))";
                 
-            // \x15 is now handled in execute_remote_command to ensure it precedes the space
-            std::string py_cmd = "python3 -c \"" + py_script + "\" " + paths_arg;
+                "print(json.dumps(L, separators=(',', ':')))";
+                
+            // Stealth Execution: Pipe Base64 script to python3 to avoid process list exposure
+            // echo "<B64>" | base64 -d | python3 - <args>
+            std::string py_b64 = dais::core::base64_encode(reinterpret_cast<const unsigned char*>(py_script.c_str()), py_script.size());
+            
+            // We use 'python3 -' to read script from stdin
+            std::string py_cmd = "echo \"" + py_b64 + "\" | base64 -d | python3 - " + paths_arg;
             
             // Chain: History Inject -> Python
             std::string full_cmd = history_inject + "; " + py_cmd;

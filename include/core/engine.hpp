@@ -284,6 +284,8 @@ namespace dais::core {
         std::atomic<bool> is_remote_session_{false};       ///< True if foreground is ssh/scp
         bool remote_agent_deployed_ = false;   ///< True if we successfully injected the agent
         std::string remote_arch_ = "";         ///< Detected remote architecture (uname -m)
+        std::string remote_bin_path_ = "";     ///< Full path to deployed agent (e.g. ~/.dais/bin/dais-agent-x86_64) or fallback
+        bool agent_deployment_failed_ = false; ///< True if we tried and failed (suppress repetitive errors)
         std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks
 
         void check_remote_session();           ///< Updates is_remote_session_ based on FG process

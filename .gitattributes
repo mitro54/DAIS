@@ -1,0 +1,5 @@
+# Enforce Unix line endings for shell scripts
+*.sh text eol=lf
+
+# Enforce default behavior for other files
+* text=auto

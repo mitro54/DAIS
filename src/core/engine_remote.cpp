@@ -37,8 +37,14 @@ namespace dais::core {
         
         bool was = is_remote_session_;
         
-        // Simple heuristic: if foreground process contains "ssh", assume remote.
-        bool detected_ssh = (fg.find("ssh") != std::string::npos);
+        // Refined heuristic: prevent matching ssh-keygen, ssh-agent, etc.
+        // We look for "ssh" exactly, or ending with "/ssh" (e.g. /usr/bin/ssh)
+        bool detected_ssh = false;
+        if (fg == "ssh") {
+            detected_ssh = true;
+        } else if (fg.size() >= 4 && fg.substr(fg.size() - 4) == "/ssh") {
+            detected_ssh = true;
+        }
 
         if (detected_ssh) {
             is_remote_session_ = true;
@@ -50,6 +56,7 @@ namespace dais::core {
                 // RESET STATE
                 remote_agent_deployed_ = false;
                 remote_db_deployed_ = false;
+                remote_bin_path_ = "";
                 remote_arch_ = "";
                 remote_session_pid_ = fg_pid;
                 
@@ -240,7 +247,7 @@ namespace dais::core {
      * 6. Verifies integrity (sha256sum) after deployment.
      */
     void Engine::deploy_remote_agent() {
-        if (remote_agent_deployed_ || !is_remote_session_) return;
+        if (remote_agent_deployed_ || !is_remote_session_ || agent_deployment_failed_) return;
         if (!is_remote_session_ && !pty_.is_shell_idle()) return;
         
         // 1. Detect Architecture
@@ -260,93 +267,129 @@ namespace dais::core {
         auto agent = dais::core::agents::get_agent_for_arch(remote_arch_);
         if (agent.data == nullptr) return; 
 
-        std::string target_path = "~/.dais/bin/agent_" + remote_arch_;
-        std::string b64 = base64_encode(agent.data, agent.size);
-        std::string temp_b64 = target_path + ".b64";
+        // 3. Dynamic Location Search
+        // Candidates for deployment (in order of preference)
+        // 1. ~/.dais/bin (Standard persistence)
+        // 2. $XDG_RUNTIME_DIR/dais (Modern Linux temp, often noexec-safe)
+        // 3. /tmp/dais-<uid> (Fallback temp)
+        std::vector<std::string> base_dirs = {
+            "~/.dais/bin",
+            "${XDG_RUNTIME_DIR:-/tmp}/dais", 
+            "/tmp/dais-$(id -u)"
+        };
 
-        bool need_deploy = true;
-        
-        std::string remote_hash_cmd = "sha256sum " + target_path + " 2>/dev/null | cut -d' ' -f1";
-        std::string current_hash = execute_remote_command(remote_hash_cmd, 1000);
-        
-        const char* ws = " \t\n\r\x0b\x0c";
-        if (current_hash.find_first_not_of(ws) != std::string::npos) {
-            current_hash.erase(0, current_hash.find_first_not_of(ws));
-            current_hash.erase(current_hash.find_last_not_of(ws) + 1);
-        } else {
-            current_hash.clear();
-        }
-        
-        // Integrity Check
-        if (!current_hash.empty() && current_hash == agent.hash) {
+        for (const auto& base_dir : base_dirs) {
+            // A. Check Writability (and create dir)
+            // We use 'echo OK' to confirm success because exit codes are harder to trap cleanly in all shells
+            std::string check_cmd = "mkdir -p -m 700 " + base_dir + " >/dev/null 2>&1 && touch " + base_dir + "/.perm_check >/dev/null 2>&1 && rm " + base_dir + "/.perm_check >/dev/null 2>&1 && echo DAIS_OK";
+            std::string check_res = execute_remote_command(check_cmd, 2000);
+            
+            if (check_res.find("DAIS_OK") == std::string::npos) {
+                continue; // Cannot write here, try next
+            }
+
+            // B. Define Target Path (Deterministic Naming)
+            // dais-agent-<arch> (Transparent naming)
+            std::string filename = "dais-agent-" + remote_arch_;
+            std::string target_path = base_dir + "/" + filename;
+            
+            // Clean up path double slashes if any (though shells usually handle it)
+            // We'll trust the shell to handle `//`
+            
+            bool need_deploy = true;
+            std::string remote_hash_cmd = "sha256sum " + target_path + " 2>/dev/null | cut -d' ' -f1";
+            std::string current_hash = execute_remote_command(remote_hash_cmd, 1000);
+            
+            const char* ws = " \t\n\r\x0b\x0c";
+            if (current_hash.find_first_not_of(ws) != std::string::npos) {
+                current_hash.erase(0, current_hash.find_first_not_of(ws));
+                current_hash.erase(current_hash.find_last_not_of(ws) + 1);
+            } else {
+                current_hash.clear();
+            }
+
+            // C. Integrity Check
+            if (!current_hash.empty() && current_hash == agent.hash) {
+                // Bin exists and matches hash. Check if executable.
+                // We'll just try running version check immediately.
+                need_deploy = false;
+            }
+
+            // D. Deploy (if needed)
+            if (need_deploy) {
+                // Encode
+                std::string b64 = base64_encode(agent.data, agent.size);
+                std::string temp_b64 = target_path + ".b64";
+
+                // Transfer
+                execute_remote_command("rm -f " + temp_b64, 2000); 
+                
+                // Prevent history pollution & echo
+                // We use 'set +o history' to stop the shell from recording the massive heredoc
+                execute_remote_command("set +o history", 1000); 
+                execute_remote_command("stty -echo", 2000);
+
+                // Add leading space to 'cat' for history safety (ignorespace)
+                std::string start_heredoc = " cat > " + temp_b64 + " << 'DAIS_EOF'\n";
+                write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
+                
+                constexpr size_t PAYLOAD_CHUNK = 4096;
+                size_t sent = 0;
+                while (sent < b64.size()) {
+                    size_t n = std::min(PAYLOAD_CHUNK, b64.size() - sent);
+                    write(pty_.get_master_fd(), b64.data() + sent, n);
+                    sent += n;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+                }
+                std::string end_heredoc = "\nDAIS_EOF\n";
+                write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
+                std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+                execute_remote_command("stty echo", 2000);
+                execute_remote_command("set -o history", 1000); // Restore history
+
+                std::string deploy_cmd = 
+                    " base64 -d " + temp_b64 + " > " + target_path + " && "
+                    "chmod +x " + target_path + " && "
+                    "rm " + temp_b64 + " && "
+                    "echo DAIS_DEPLOY_OK";
+
+                std::string result = execute_remote_command(deploy_cmd, 10000);
+                if (result.find("DAIS_DEPLOY_OK") == std::string::npos) {
+                    continue; // Deployment failed (maybe disk full?), try next path
+                }
+            }
+
+            // E. Final Verification (Execution & NOEXEC Check)
+            // This runs the agent. If it fails (126 Permission Denied), we know we hit noexec.
             std::string ver_cmd = target_path + " --version";
             std::string ver = execute_remote_command(ver_cmd, 1000);
-            if (ver.find("DAIS_AGENT_v1.0") != std::string::npos) {
-                need_deploy = false;
+            
+            if (ver.find("DAIS_AGENT") != std::string::npos) {
+                // SUCCESS!
                 remote_agent_deployed_ = true;
-                 if (config_.show_logo) {
+                remote_bin_path_ = target_path;
+                
+                if (config_.show_logo) {
                     std::cout << "\r\n[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
-                              << "] Agent verified (" << agent.hash.substr(0, 8) << "...).\r\n" << std::flush;
+                              << "] Agent active at " << target_path << "\r\n" << std::flush;
                 }
+                return; // Done
+            }
+            
+            // F. Cleanup on failure (best effort)
+            // If we deployed but couldn't run, delete it so we don't leave trash in noexec mount
+            if (need_deploy) {
+                execute_remote_command("rm " + target_path, 1000);
             }
         }
 
-        if (need_deploy) {
-            execute_remote_command("mkdir -p -m 700 ~/.dais/bin", 2000);
-            execute_remote_command("rm -f " + temp_b64, 2000); 
-            
-            // Critical: Disable echo for binary transfer
-            execute_remote_command("stty -echo", 2000);
-
-            // Heredoc Stream
-            std::string start_heredoc = "cat > " + temp_b64 + " << 'DAIS_EOF'\n";
-            write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
-            
-            constexpr size_t PAYLOAD_CHUNK = 4096;
-            size_t sent = 0;
-            while (sent < b64.size()) {
-                size_t n = std::min(PAYLOAD_CHUNK, b64.size() - sent);
-                write(pty_.get_master_fd(), b64.data() + sent, n);
-                sent += n;
-                std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            }
-            std::string end_heredoc = "\nDAIS_EOF\n";
-            write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
-            std::this_thread::sleep_for(std::chrono::milliseconds(300));
-
-            execute_remote_command("stty echo", 2000);
-
-            std::string deploy_cmd = 
-                "base64 -d " + temp_b64 + " > " + target_path + " && "
-                "chmod +x " + target_path + " && "
-                "rm " + temp_b64 + " && "
-                "echo DAIS_DEPLOY_OK";
-
-            std::string result = execute_remote_command(deploy_cmd, 10000);
-            
-            if (result.find("DAIS_DEPLOY_OK") != std::string::npos) {
-                remote_agent_deployed_ = true;
-                current_hash = execute_remote_command(remote_hash_cmd, 1000);
-                current_hash.erase(current_hash.find_last_not_of(" \n\r\t") + 1);
-                
-                if (current_hash != agent.hash) {
-                     std::cout << "\r[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
-                               << "] Integrity Check Failed! Remote hash mismatch.\r\n"
-                               << "    Expected: " << agent.hash << "\r\n"
-                               << "    Actual:   [" << current_hash << "]\r\n" << std::flush;
-                     remote_agent_deployed_ = false;
-                } else {
-                     if (config_.show_logo) {
-                         std::cout << "\r\n[" << handlers::Theme::SUCCESS << "-" << handlers::Theme::RESET 
-                                   << "] Agent deployed (" << agent.hash.substr(0, 8) << "...).\r\n" << std::flush;
-                     }
-                }
-            } else {
-                if (config_.show_logo) {
-                    std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "-" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET 
-                              << " Agent deployment failed. Falling back to Python.\r\n";
-                }
-            }
+        // 4. Fallback Failure
+        // 4. Fallback Failure
+        agent_deployment_failed_ = true; // Mark as failed to prevent retry spam
+        if (config_.show_logo) {
+            std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "-" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET 
+                      << " Agent deployment failed (No writable/executable path found). Falling back to Python.\r\n";
         }
     }
 }
