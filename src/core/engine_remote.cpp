@@ -265,7 +265,13 @@ namespace dais::core {
 
         // 2. Get Binary from Bundle
         auto agent = dais::core::agents::get_agent_for_arch(remote_arch_);
-        if (agent.data == nullptr) return; 
+        if (agent.data == nullptr || agent.size == 0) {
+            if (config_.show_logo) {
+                 std::cout << "\r\n[" << handlers::Theme::WARNING << "-" << handlers::Theme::RESET 
+                           << "] Agent binary for " << remote_arch_ << " is missing or empty. Skipping native deployment.\r\n";
+            }
+            return; 
+        }
 
         // 3. Dynamic Location Search
         // Candidates for deployment (in order of preference)
@@ -317,6 +323,11 @@ namespace dais::core {
 
             // D. Deploy (if needed)
             if (need_deploy) {
+                if (config_.show_logo) {
+                    std::cout << "\r\n[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET 
+                              << "] Injecting remote agent (" << target_path << ")..." << std::flush;
+                }
+
                 // Encode
                 std::string b64 = base64_encode(agent.data, agent.size);
                 std::string temp_b64 = target_path + ".b64";
