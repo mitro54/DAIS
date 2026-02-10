@@ -3,8 +3,19 @@
 
 ![CI Tests](https://github.com/mitro54/DAIS/actions/workflows/ci-tests.yml/badge.svg) [![Coverage Report](https://img.shields.io/badge/coverage-report-blue)](https://mitro54.github.io/DAIS/coverage/)
 
-DAIS is a PTY (pseudoterminal) shell wrapper for Data / AI Engineers. Core is written in C++, that supports Python scripts as extensions.
-Main objective is to create a helpful open source tool that allows users to quickly gather metadata about the files in a directory or query databases, all with minimal configuration or external commands. How about a standard ls command whose output is fully configurable and sorted by user in any meaningful way? How about running the exact same commands on ssh connections, allowing you to scout remote unknown systems or query their databases with the same ease? Don't like the way things look? Make them look just the way you want them to.
+**DAIS** is a **PTY (pseudoterminal) shell wrapper** for **Data / AI Engineers**. Core is written in **C++**, that supports **Python** scripts as extensions. 
+
+> ### The Mission
+> To create a helpful open source tool that allows users to quickly **gather metadata** about the files in a directory or **query databases**, all with **minimal configuration** or external commands. 
+
+---
+
+### Imagine a better workflow:
+* **How about a standard `ls` command** whose output is fully configurable and sorted by user in any meaningful way? 
+* **How about running the exact same commands on ssh connections**, allowing you to scout remote unknown systems or query their databases with the same ease? 
+* **Don't like the way things look?** Make them look just the way you want them to.
+
+---
 
 ### Visual Customization
 DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
