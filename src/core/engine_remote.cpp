@@ -325,7 +325,7 @@ namespace dais::core {
             if (need_deploy) {
                 if (config_.show_logo) {
                     std::cout << "\r\n[" << handlers::Theme::NOTICE << "-" << handlers::Theme::RESET 
-                              << "] Injecting remote agent (" << target_path << ")..." << std::flush;
+                              << "] Attempting to inject remote agent (" << target_path << ")..." << std::flush;
                 }
 
                 // Encode
