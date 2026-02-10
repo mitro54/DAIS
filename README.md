@@ -17,8 +17,8 @@
 
 ---
 
-### Visual Customization
-DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
+> ### Visual Customization
+> DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
 
 **Neon Style** (High Contrast & Vibrant)
 ![Neon Style](docs/assets/DAIS_neon.jpg)
