@@ -57,12 +57,14 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Flexible Usage**: Styling applies seamlessly to `ls -a` (hidden files) and `ls /absolute/path`
 - **Seamless SSH Integration**:
     - **Remote History Sync**: Internal DAIS commands (`:db`, `:ls`) executed in SSH sessions are injected into the remote shell's history.
-    - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to a universal Python script if the specialized agent cannot run.
+    - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to stealth in-memory execution via Python if the filesystem is read-only or specialized agents are blocked.
+    - **Input Transparency**: Employs Base64-encoded SQL proxying to eliminate shell injection and character-expansion bugs (globbing, emojis, or complex quotes) during remote execution.
 - **Compatibility**:
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
     - **Shell Support**: 
         - **Bash**, **Ash**, **Zsh**: Full support including DAIS visual history navigation and command editing in ssh & locally
         - **Fish**: Native shell experience takes precedence (DAIS visual mode disabled to respect Fish's advanced autosuggestions; doesnt save DAIS commands to history)
+        - **Alpine Linux Support**: *Limited*. Agent injection works, but some interactive features (like history sync) may be restricted due to `musl` libc and `BusyBox/ash` shell constraints.
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
     - **Robust CI**: Verified functional cross-platform (Ubuntu, macOS, Fedora).
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
