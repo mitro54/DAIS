@@ -379,7 +379,11 @@ namespace dais::core {
 
             if (pfd.revents & POLLIN) {
                 ssize_t bytes_read = read(pty_.get_master_fd(), buffer.data(), buffer.size());
-                if (bytes_read <= 0) break;
+                if (bytes_read <= 0) {
+                     // PTY Closed (Shell Exited)
+                     running_ = false;
+                     break;
+                }
 
                 // --- VISUALIZATION SAFETY ---
                 // If the main thread is running a silent command (capture_mode_),
@@ -509,9 +513,6 @@ namespace dais::core {
                         if (c != '\n') { 
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_ += c;
-                            if (prompt_buffer_.size() > 2048) { // Increased for complex ANSI echoes
-                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 2048);
-                            }
                         }    
                             // Startup Fix: Ensure first prompt gets logo
                             // Force IDLE state and line start to guarantee injection on the very first prompt
@@ -569,6 +570,16 @@ namespace dais::core {
                     }
                 }
                 
+                {
+                    std::lock_guard<std::mutex> lock(prompt_mutex_);
+                    if (prompt_buffer_.size() > 4096) { 
+                        // Amortized O(1) trim: Only trim when 2x over capacity
+                        prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 2048);
+                    }
+                }
+                
+                check_remote_session(); // Update remote state periodically
+                
                 skip_output_processing:;
             }
         }
@@ -586,6 +597,44 @@ namespace dais::core {
         pfd.events = POLLIN;
 
         std::string& cmd_accumulator = input_accumulator_;
+
+        // Helper lambda to adopt ghost commands from shell history
+        //
+        // Guards:
+        // 1. !was_visual_mode_: User just cleared an internal command.
+        //    Do NOT adopt the ghost output of that command.
+        // 2. !intentionally_cleared_: User explicitly deleted the line.
+        //    Do NOT adopt the result of that deletion.
+        auto adopt_ghost_command = [&]() -> bool {
+            if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
+                CursorRecovery recovery;
+                {
+                    std::lock_guard<std::mutex> lock(prompt_mutex_);
+                    recovery = recover_cmd_from_buffer(prompt_buffer_);
+                }
+                if (!recovery.command.empty()) {
+                    bool is_internal = recovery.command.starts_with(":");
+                    cmd_accumulator = recovery.command;
+                    cursor_pos_ = recovery.cursor_idx;
+                    ensure_visual_mode_init(cursor_pos_);
+
+                    if (is_remote_session_ && is_internal) {
+                        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+                        visual_move_cursor(cursor_pos_, 0); 
+                        write(STDOUT_FILENO, "\x1b[J", 3); 
+                        std::cout << cmd_accumulator << std::flush;
+                        visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
+                    }
+                    
+                    if (!is_internal) {
+                        synced_with_shell_ = true;
+                        was_visual_mode_ = false; 
+                    }
+                    return true;
+                }
+            }
+            return false;
+        };
 
         while (running_) {
             int ret = poll(&pfd, 1, 100);
@@ -654,9 +703,9 @@ namespace dais::core {
                     // --- VISUAL MODE ENTRY DETECTION ---
                     // Fish: Skip visual mode entirely - Fish's prompt handling is incompatible
                     bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                    bool visual_mode = !is_fish_ && !in_alt_screen_ && (
+                    bool visual_mode = !in_alt_screen_ && (
                                        starts_with_colon || 
-                                       (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                       (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                        );
                     if (visual_mode) {
                         ensure_visual_mode_init();
@@ -694,7 +743,7 @@ namespace dais::core {
                             bool internal_mode = cmd_accumulator.starts_with(":");
                             
                             if ((arrow == 'A' || arrow == 'B') && 
-                                !is_fish_ &&  // Fish handles its own history
+                                (!is_fish_ || internal_mode) &&  // Fish Fix: Allow interception if internal command
                                 (pty_.is_shell_idle() || (is_remote_session_ && internal_mode)) && 
                                 elapsed > 200) {
                                 // Safe to intercept for DAIS history
@@ -718,9 +767,9 @@ namespace dais::core {
                             // If user presses Left (D) or Right (C), handle based on mode.
                             if (arrow == 'C' || arrow == 'D') {
                                 bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                                bool visual_mode = !is_fish_ && !in_alt_screen_ && (
+                                bool visual_mode = !in_alt_screen_ && (
                                                    starts_with_colon || 
-                                                   (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                                   (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                                    );
 
                                 if (visual_mode) {
@@ -735,7 +784,8 @@ namespace dais::core {
                                 }
 
                                 // Sync history content to shell before cursor movement
-                                sync_history_to_shell(cmd_accumulator);
+                                // Fish Fix: Don't force sync on navigation - Fish manages its own buffer state better
+                                if (!is_fish_) sync_history_to_shell(cmd_accumulator);
                                 
                                 // Track cursor position even after sync so edits go to correct place
                                 if (arrow == 'D' && cursor_pos_ > 0) cursor_pos_--;
@@ -1195,38 +1245,7 @@ namespace dais::core {
                         // When using Up-Arrow (shell history), the shell echoes
                         // text that DAIS didn't process. We must scrape the buffer
                         // and "adopt" it into cmd_accumulator to allow local editing.
-                        //
-                        // Guards:
-                        // 1. !was_visual_mode_: User just cleared an internal command.
-                        //    Do NOT adopt the ghost output of that command.
-                        // 2. !intentionally_cleared_: User explicitly deleted the line.
-                        //    Do NOT adopt the result of that deletion.
-                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
-                            CursorRecovery recovery;
-                            {
-                                std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovery = recover_cmd_from_buffer(prompt_buffer_);
-                            }
-                            if (!recovery.command.empty()) {
-                                bool is_internal = recovery.command.starts_with(":");
-                                cmd_accumulator = recovery.command;
-                                cursor_pos_ = recovery.cursor_idx;
-                                ensure_visual_mode_init(cursor_pos_);
-
-                                if (is_remote_session_ && is_internal) {
-                                    std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
-                                    visual_move_cursor(cursor_pos_, 0); 
-                                    std::cout << "\x1b[J"; 
-                                    std::cout << cmd_accumulator << std::flush;
-                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
-                                }
-                                
-                                if (!is_internal) {
-                                    synced_with_shell_ = true;
-                                    was_visual_mode_ = false; 
-                                }
-                            }
-                        }
+                        adopt_ghost_command();
 
                         // Sync history content to shell before backspace editing
                         sync_history_to_shell(cmd_accumulator);
@@ -1234,9 +1253,9 @@ namespace dais::core {
                         // Check if we are in a DAIS command (: commands stay visual)
                         // Fish: Skip visual mode - Fish handles display differently
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                        bool visual_mode = !is_fish_ && !in_alt_screen_ && (
+                        bool visual_mode = !in_alt_screen_ && (
                                            starts_with_colon || 
-                                           (!cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                           (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                            );
                         
                         if (!cmd_accumulator.empty() && cursor_pos_ > 0) {
@@ -1279,37 +1298,12 @@ namespace dais::core {
                         // Before letting a new character "leak" to the shell, check
                         // if we should first adopt any existing shell history (ghosts).
                         // Guards same as above (don't adopt if cleared or visual).
-                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
-                            CursorRecovery recovery;
-                            {
-                                std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovery = recover_cmd_from_buffer(prompt_buffer_);
-                            }
-                            if (!recovery.command.empty()) {
-                                bool is_internal = recovery.command.starts_with(":");
-                                cmd_accumulator = recovery.command;
-                                cursor_pos_ = recovery.cursor_idx;
-                                ensure_visual_mode_init(cursor_pos_);
-
-                                if (is_remote_session_) {
-                                    std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
-                                    visual_move_cursor(cursor_pos_, 0); 
-                                    std::cout << "\x1b[J"; 
-                                    std::cout << cmd_accumulator << std::flush;
-                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
-                                }
-                                
-                                if (!is_internal) {
-                                    synced_with_shell_ = true;
-                                    was_visual_mode_ = false;
-                                }
-
-                                // RACE CONDITION FIX: If the printable char 'c' was already 
-                                // echoed by the shell and captured in 'recovery', we must NOT 
-                                // process it again in this loop.
-                                if (!cmd_accumulator.empty() && cmd_accumulator.back() == c) {
-                                    continue; 
-                                }
+                        if (adopt_ghost_command()) {
+                            // RACE CONDITION FIX: If the printable char 'c' was already 
+                            // echoed by the shell and captured in 'recovery', we must NOT 
+                            // process it again in this loop.
+                            if (!cmd_accumulator.empty() && cmd_accumulator.back() == c) {
+                                continue; 
                             }
                         }
 
@@ -1325,7 +1319,7 @@ namespace dais::core {
                             synced_with_shell_ = false;
                         }
 
-                        if (pty_.is_shell_idle() || is_remote_session_ || c == ':' || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) {
+                        if ((pty_.is_shell_idle() || is_remote_session_ || c == ':' || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) && !in_alt_screen_) {
                             if (cursor_pos_ > cmd_accumulator.size()) cursor_pos_ = cmd_accumulator.size();
                             cmd_accumulator.insert(cursor_pos_, 1, c);
                             cursor_pos_++;
@@ -1338,9 +1332,9 @@ namespace dais::core {
                         // GUARD: Disable visual mode in alternate screen (Vim) so keys pass through logic
                         // GUARD: Disable visual mode if command is SYNCED with shell (e.g. from history recall)
                         // GUARD: Fish disabled - its prompt handling is incompatible with DAIS visual mode
-                        bool visual_mode = !is_fish_ && !in_alt_screen_ && (
+                        bool visual_mode = !in_alt_screen_ && (
                                            starts_with_colon || 
-                                           (!synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
+                                           (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                            );
                         
                         if (visual_mode) {
@@ -1437,12 +1431,15 @@ namespace dais::core {
              write(pty_.get_master_fd(), block.c_str(), block.size());
              
              // Sync our local command tracker for remote session interception
-             if (pty_.is_shell_idle() || is_remote_session_ || (is_fish_ && shell_state_ == ShellState::IDLE)) {
+             if ((pty_.is_shell_idle() || is_remote_session_ || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) && !in_alt_screen_) {
                 input_accumulator_ += block;
+                // Cursor Fix: Update cursor position to end of pasted block
+                cursor_pos_ = input_accumulator_.size();
+                
                 if (!block.starts_with(":")) {
                     synced_with_shell_ = true;
-                    was_visual_mode_ = false;
                 }
+                was_visual_mode_ = false;
              }
         }
 
@@ -2121,15 +2118,47 @@ namespace dais::core {
                     if (length > 0) length--;
                 } else if (c == '\x1b') {
                     state = 1;
+                } else if (c == '\t') {
+                    // Standard tab stop every 8 characters
+                    length = (length + 8) & ~7;
                 } else if (std::isprint(static_cast<unsigned char>(c))) {
                     length++;
+                } else {
+                    // HEURISTIC: Basic UTF-8 Support
+                    // If byte is a UTF-8 Start Byte (0xC0-0xF7) OR standard ascii > 32?
+                    // actually isprint handles ascii.
+                    // We just need to catch the start of a multi-byte sequence.
+                    // UTF-8 Start Byte: 11xxxxxx (0xC0+)
+                    // Continuation Byte: 10xxxxxx (0x80-0xBF) -> Ignore
+                    unsigned char uc = static_cast<unsigned char>(c);
+                    if ((uc & 0xC0) != 0x80 && uc > 127) {
+                         // Assume 1 column width for typical powerline symbols
+                         // Emoji might be 2, but 1 is better than 0.
+                         length++;
+                    }
                 }
             } else if (state == 1) { // After ESC
                 if (c == '[') state = 2; // CSI
                 else if (c == ']') state = 3; // OSC
                 else state = 0; // 1-char sequence (or unknown)
             } else if (state == 2) { // CSI
-                if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
+                // Handle "K" (Erase in Line) - often used in prompts to clear old text
+                // If we see \x1b[K or \x1b[0K, it clears from cursor to end.
+                // If we see \x1b[2K, it clears the whole line.
+                // For simplified visual width calculation, we assume K at the end of a prompt behavior
+                // resets the 'valid' width if it follows a CR. 
+                // However, more commonly, \r + \x1b[K means "start over".
+                if (c == 'K') {
+                   // If we just had a CR (length 0), then K confirms the line is empty.
+                   // If we had text, K clears it? No, K clears *after* cursor.
+                   // But \x1b[2K clears everything.
+                   // Since we don't parse the parameter (n), let's assume worst case for safety or just ignore?
+                   // BETTER: If we detect [2K, reset length. 
+                   // But we aren't parsing numbers here. 
+                   // Let's at least handle the state transition.
+                   state = 0;
+                }
+                else if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
             } else if (state == 3) { // OSC
                 if (c == '\x07' || c == '\x1b') state = 0; // Bell or start of ST
             }

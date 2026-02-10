@@ -230,8 +230,8 @@ namespace dais::core {
         std::filesystem::path history_file_;        ///< ~/.dais_history
         size_t history_index_ = 0;                  ///< Current position in history
         std::string history_stash_;                 ///< Stashes current line when navigating
-        bool history_navigated_ = false;            ///< True if arrow navigation was used
-        bool tab_used_ = false;                      ///< True if Tab was used (accumulator unreliable)
+        std::atomic<bool> history_navigated_{false};///< True if arrow navigation was used
+        std::atomic<bool> tab_used_{false};         ///< True if Tab was used (accumulator unreliable)
         bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
         size_t cursor_pos_ = 0;                     ///< Index in input_accumulator_ for editable prompt
         std::atomic<int> terminal_cols_{80};        ///< Current terminal width
@@ -281,7 +281,7 @@ namespace dais::core {
         // =====================================================================
         // REMOTE SESSION STATE (SSH)
         // =====================================================================
-        bool is_remote_session_ = false;       ///< True if foreground is ssh/scp
+        std::atomic<bool> is_remote_session_{false};       ///< True if foreground is ssh/scp
         bool remote_agent_deployed_ = false;   ///< True if we successfully injected the agent
         std::string remote_arch_ = "";         ///< Detected remote architecture (uname -m)
         std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks
