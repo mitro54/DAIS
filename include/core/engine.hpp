@@ -178,6 +178,8 @@ namespace dais::core {
         mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
         std::string prompt_buffer_;            ///< Last ~1024 chars for prompt/command detection
         int pass_through_esc_state_ = 0;       ///< ANSI escape sequence state machine (0=normal)
+        bool logo_injected_this_prompt_ = false; ///< Prevents multiple logos on the same prompt (e.g. multi-line)
+        int expect_prompt_attempts_ = 0;       ///< Force logo injection for N attempts (bypass idle check)
         
         // Singleton thread pool for parallel file analysis (used by ls handler)
         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)
@@ -213,6 +215,8 @@ namespace dais::core {
         
         enum class ShellState { IDLE, RUNNING };
         std::atomic<ShellState> shell_state_{ShellState::IDLE};
+        std::atomic<bool> synced_with_shell_{true};  ///< True if we are confident in shell state (False forces prompt hunt)
+        bool first_prompt_seen_ = false;              ///< Startup logo logic
         std::chrono::steady_clock::time_point last_command_time_;  ///< Debounce timer
         
         // =====================================================================
@@ -226,8 +230,8 @@ namespace dais::core {
         std::filesystem::path history_file_;        ///< ~/.dais_history
         size_t history_index_ = 0;                  ///< Current position in history
         std::string history_stash_;                 ///< Stashes current line when navigating
-        bool history_navigated_ = false;            ///< True if arrow navigation was used
-        bool tab_used_ = false;                      ///< True if Tab was used (accumulator unreliable)
+        std::atomic<bool> history_navigated_{false};///< True if arrow navigation was used
+        std::atomic<bool> tab_used_{false};         ///< True if Tab was used (accumulator unreliable)
         bool skipping_osc_ = false;                 ///< True if we are in the middle of skipping an OSC sequence
         size_t cursor_pos_ = 0;                     ///< Index in input_accumulator_ for editable prompt
         std::atomic<int> terminal_cols_{80};        ///< Current terminal width
@@ -277,7 +281,7 @@ namespace dais::core {
         // =====================================================================
         // REMOTE SESSION STATE (SSH)
         // =====================================================================
-        bool is_remote_session_ = false;       ///< True if foreground is ssh/scp
+        std::atomic<bool> is_remote_session_{false};       ///< True if foreground is ssh/scp
         bool remote_agent_deployed_ = false;   ///< True if we successfully injected the agent
         std::string remote_arch_ = "";         ///< Detected remote architecture (uname -m)
         std::chrono::steady_clock::time_point last_session_check_; /// Throttle remote checks
@@ -300,7 +304,6 @@ namespace dais::core {
         std::atomic<bool> pending_remote_deployment_{false};
         std::atomic<bool> ready_to_deploy_{false};
         std::atomic<bool> in_alt_screen_{false};
-        std::atomic<bool> synced_with_shell_{false};  ///< Prevents race conditions by tracking if local buffer matches shell input
         std::atomic<int> cached_prompt_width_{-1};    ///< Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers
         bool intentionally_cleared_{false};           ///< Prevents "ghost" history adoption when user explicitly clears the line
         std::string last_remote_prompt_;              ///< Stores the prompt swallowed by execute_remote_command for later restoration

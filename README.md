@@ -3,12 +3,19 @@
 
 ![CI Tests](https://github.com/mitro54/DAIS/actions/workflows/ci-tests.yml/badge.svg) [![Coverage Report](https://img.shields.io/badge/coverage-report-blue)](https://mitro54.github.io/DAIS/coverage/)
 
-- In researching / early development stage
-- Currently meets the MVP requirements stated in roadmap.md
+**DAIS** is a **PTY (pseudoterminal) shell wrapper** for **Data / AI Engineers**. Core is written in **C++**, that supports **Python** scripts as extensions. 
 
-## What
-- DAIS is a PTY (pseudoterminal) shell wrapper. 
-- Core is written in C++, that supports Python scripts as extensions.
+### The Mission
+To create a helpful open source tool that allows users to quickly **gather metadata** about the files in a directory or **query databases**, all with **minimal configuration** or external commands. 
+
+---
+
+> ### Imagine a better workflow:
+> * How about a standard `ls` command whose output is fully configurable and sorted by user in any meaningful way? 
+> * How about running the exact same commands on ssh connections, allowing you to scout remote unknown systems or query their databases with the same ease? 
+> * Don't like the way things look? Make them look just the way you want them to.
+
+---
 
 ### Visual Customization
 DAIS allows you to style your file listing exactly how you want it; from minimal layouts to rich, colorful themes or even icon-enhanced displays. Here are some pre-configured examples:
@@ -129,15 +136,6 @@ DAIS maintains its own file-based history (~/.dais_history) separate from your s
 - **Original Commands**: Saves exactly what you typed (e.g., `ls`, including the projects own runtime : commands).
 - **Context Aware**: Arrow keys only navigate history when the shell is idle; they work normally inside apps like vim or nano.
 - **Remote Persistence**: When using SSH, DAIS injects its commands into the *remote* shell's history (using `history -s` or `print -s`), ensuring a unified experience across local and remote sessions.
-
-
-## Scope
-- Projects scope is to create a helpful open-source extension for Data / AI Engineers or like minded people in their day-to-day tasks, running in their favorite shell.
-- This project will use present technologies and as an open-source, allows others to contribute their ideas and features to it as well.
-- Allows Python scripts so other Data / AI oriented people can create plugins in the language they are most confident in.
-
-## Why
-Why not, terminals should be smarter
 
 ## Build
 The project has been tested on **Ubuntu 24.04**, **Debian 13**, **Fedora 40**, **Arch Linux**, **Alpine 3.20**, and **macOS**.

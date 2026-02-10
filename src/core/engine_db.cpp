@@ -144,11 +144,6 @@ namespace dais::core {
                 }
                 std::cout << formatted << "\r\n" << std::flush;
                 
-                // Restore consumed prompt
-                if (is_remote_session_ && !last_remote_prompt_.empty()) {
-                    std::cout << last_remote_prompt_ << std::flush;
-                }
-                
             } else if (action == "page") {
                 // ACTION: Open in Pager (less)
                 std::string pager_cmd = "less -S"; 

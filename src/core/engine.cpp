@@ -379,7 +379,11 @@ namespace dais::core {
 
             if (pfd.revents & POLLIN) {
                 ssize_t bytes_read = read(pty_.get_master_fd(), buffer.data(), buffer.size());
-                if (bytes_read <= 0) break;
+                if (bytes_read <= 0) {
+                     // PTY Closed (Shell Exited)
+                     running_ = false;
+                     break;
+                }
 
                 // --- VISUALIZATION SAFETY ---
                 // If the main thread is running a silent command (capture_mode_),
@@ -413,9 +417,9 @@ namespace dais::core {
                     if (buffer_str.size() >= prompt.size() &&
                         buffer_str.find(prompt) != std::string::npos) {
                         
-                        // Logic update: in SSH, shell_state_ can be IDLE if we see a prompt
+                        // Logic update: in SSH or complex shells (Zsh/Fish), shell_state_ can be IDLE if we see a prompt
                         // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
-                        if ((pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                        if ((pty_.is_shell_idle() || is_remote_session_ || is_complex_shell_) && !in_alt_screen_) {
                             shell_state_ = ShellState::IDLE;
                             
                             // If we were waiting for login to finish, we are now ready!
@@ -439,8 +443,7 @@ namespace dais::core {
                         
                         // Shell-Specific Logo Injection Strategy:
                         if (is_complex_shell_ && !is_fish_) {
-                            // Zsh: ANSI escape sequence tracking only, NO logo injection
-                            // Logo is rendered by the shell's prompt, not pass-through injection
+                            // Zsh: Delayed logo injection with ANSI escape sequence tracking.
                             // State machine: 0=text, 1=ESC, 2=CSI, 3=OSC, 4=Charset
                             if (pass_through_esc_state_ == 1) {
                                 if (c == '[') pass_through_esc_state_ = 2;
@@ -448,6 +451,12 @@ namespace dais::core {
                                 else if (c == '(' || c == ')') pass_through_esc_state_ = 4;
                                 else pass_through_esc_state_ = 0;
                             } else if (pass_through_esc_state_ == 2) {
+                                // CSI Sequence (e.g., [K, [2J)
+                                // If we detect a screen/line clear, and we are expecting a prompt (internal command),
+                                // we should reset the logo state to allow re-injection.
+                                if ((c == 'J' || c == 'K') && expect_prompt_attempts_ > 0) {
+                                    logo_injected_this_prompt_ = false;
+                                }
                                 if (std::isalpha(static_cast<unsigned char>(c))) pass_through_esc_state_ = 0;
                             } else if (pass_through_esc_state_ == 3) {
                                 if (c == kBell) pass_through_esc_state_ = 0;
@@ -455,6 +464,25 @@ namespace dais::core {
                                 pass_through_esc_state_ = 0;
                             } else if (c == kEsc) {
                                 pass_through_esc_state_ = 1;
+                            } else if (at_line_start_ && config_.show_logo && shell_state_ == ShellState::IDLE && 
+                                       (pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
+                                // Inject logo at line start when shell is idle (and NOT in vim)
+                                // GUARD: Only inject ONCE per prompt interaction (prevents multi-line dual logos)
+                                // GUARD: Allow injection if we explicitly expect a prompt (internal cmd) OR startup (first prompt)
+                                // STANDARD LOGIC: Rely on IDLE state. If we miss the start of the prompt (Remote/Async),
+                                // we will catch it retroactively in the detect_prompt block below.
+                                bool should_inject = logo_injected_this_prompt_ == false && (
+                                    shell_state_ == ShellState::IDLE && (pty_.is_shell_idle() || is_remote_session_)
+                                );
+                                
+                                if (c >= 33 && c < 127 && should_inject) {
+                                    std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
+                                    write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                    at_line_start_ = false;
+                                    logo_injected_this_prompt_ = true;
+                                    first_prompt_seen_ = true;
+                                    expect_prompt_attempts_ = 0;
+                                }
                             }
                         } else if (!is_complex_shell_) {
                             // Simple shells: inject immediately
@@ -476,47 +504,81 @@ namespace dais::core {
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_.clear();
                         } else if (c == '\r') {
-                            // For complex shells, \r means "back to line start"
-                            // For simple shells, \r often means new prompt line
-                            if (!is_complex_shell_) {
-                                at_line_start_ = true;
-                            }
+                            at_line_start_ = true;
                         }
                         
                         // ALWAYS capture to prompt_buffer_ (printable AND control chars)
-                        if (true) { 
+                        // EXCEPTION: Don't store the newline that just cleared or reset the line.
+                        // We NOW allow \r so that recover_cmd_from_buffer can handle line redrawing.
+                        if (c != '\n') { 
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_ += c;
-                            if (prompt_buffer_.size() > 1024) {
-                                prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 1024);
+                        }    
+                            // Startup Fix: Ensure first prompt gets logo
+                            // Force IDLE state and line start to guarantee injection on the very first prompt
+                            if (prompt_buffer_.find("DAIS has been started") != std::string::npos && c == '\n') {
+                                at_line_start_ = true;
+                                shell_state_ = ShellState::IDLE; 
+                                // Reset any stale attempt counters to ensure clean slate
+                                expect_prompt_attempts_ = 0; 
                             }
                             
                             if (prompt_buffer_.find("--More--") != std::string::npos) {
                                 in_more_pager_ = true;
                             }
                         }
-                    }
-                }
-                
-                // --- PROMPT DETECTION: Set state to IDLE ---
-                // Check if output ends with a known shell prompt
-                {
-                    std::lock_guard<std::mutex> lock(prompt_mutex_);
-                    for (const auto& prompt : config_.shell_prompts) {
-                        if (prompt_buffer_.size() >= prompt.size() &&
-                            prompt_buffer_.substr(prompt_buffer_.size() - prompt.size()) == prompt) {
-                            
-                             // Logic update: in SSH, shell_state_ can be IDLE if we see a prompt
-                            // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
-                            if ((pty_.is_shell_idle() || is_remote_session_) && !in_alt_screen_) {
-                                shell_state_ = ShellState::IDLE;
-                                // CACHE: Snapshot the validated prompt width
-                                cached_prompt_width_ = calculate_visual_length(prompt_buffer_);
-                            }
-                            break;
+                    
+                        // --- PROMPT DETECTION: Set state to IDLE ---
+                        // Check if output ends with a known shell prompt.
+                        // IMPORTANT: For complex shells (Fish/Zsh), prompts contain ANSI colors.
+                        // We must match against a recovered (stripped) line.
+                        {
+                            std::lock_guard<std::mutex> lock(prompt_mutex_);
+                            CursorRecovery recovery = recover_cmd_from_buffer(prompt_buffer_);
+                            std::string clean_prompt = recovery.command; 
+
+                            for (const auto& prompt : config_.shell_prompts) {
+                                if (clean_prompt.size() >= prompt.size() &&
+                                    clean_prompt.substr(clean_prompt.size() - prompt.size()) == prompt) {
+                                    
+                                     // Logic update: in SSH or complex shells (Zsh/Fish), shell_state_ can be IDLE if we see a prompt
+                                    // even if pty_.is_shell_idle() is false. BUT NOT IN ALT SCREEN (Vim).
+                                    if ((pty_.is_shell_idle() || is_remote_session_ || is_complex_shell_) && !in_alt_screen_) {
+                                        shell_state_ = ShellState::IDLE;
+                                        synced_with_shell_ = true; // Confirmed prompt match
+                                        was_visual_mode_ = false;  // Clear visual state for new command session
+                                        
+                                        // RETROACTIVE INJECTION:
+                                        // If we missed the start of the prompt (because state was RUNNING),
+                                        // but we have now confirmed this IS the prompt, inject the logo NOW.
+                                        if (!logo_injected_this_prompt_ && config_.show_logo) {
+                                            // 1. Move Cursor to Start of Line (\r)
+                                            // 2. Print Logo
+                                            // 3. Reprint what we thought was the prompt (prompt_buffer_ is cleaned of newlines)
+                                            std::string logo_str = handlers::Theme::RESET + "\r[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] " + prompt_buffer_;
+                                            write(STDOUT_FILENO, logo_str.c_str(), logo_str.size());
+                                            logo_injected_this_prompt_ = true;
+                                            first_prompt_seen_ = true; 
+                                        }
+                                        
+                                        // CACHE: Snapshot the validated prompt width
+                                        cached_prompt_width_ = calculate_visual_length(prompt_buffer_);
+                                    }
+                                    break;
+                                }
                         }
                     }
                 }
+                
+                {
+                    std::lock_guard<std::mutex> lock(prompt_mutex_);
+                    if (prompt_buffer_.size() > 4096) { 
+                        // Amortized O(1) trim: Only trim when 2x over capacity
+                        prompt_buffer_ = prompt_buffer_.substr(prompt_buffer_.size() - 2048);
+                    }
+                }
+                
+                check_remote_session(); // Update remote state periodically
                 
                 skip_output_processing:;
             }
@@ -535,6 +597,44 @@ namespace dais::core {
         pfd.events = POLLIN;
 
         std::string& cmd_accumulator = input_accumulator_;
+
+        // Helper lambda to adopt ghost commands from shell history
+        //
+        // Guards:
+        // 1. !was_visual_mode_: User just cleared an internal command.
+        //    Do NOT adopt the ghost output of that command.
+        // 2. !intentionally_cleared_: User explicitly deleted the line.
+        //    Do NOT adopt the result of that deletion.
+        auto adopt_ghost_command = [&]() -> bool {
+            if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
+                CursorRecovery recovery;
+                {
+                    std::lock_guard<std::mutex> lock(prompt_mutex_);
+                    recovery = recover_cmd_from_buffer(prompt_buffer_);
+                }
+                if (!recovery.command.empty()) {
+                    bool is_internal = recovery.command.starts_with(":");
+                    cmd_accumulator = recovery.command;
+                    cursor_pos_ = recovery.cursor_idx;
+                    ensure_visual_mode_init(cursor_pos_);
+
+                    if (is_remote_session_ && is_internal) {
+                        std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+                        visual_move_cursor(cursor_pos_, 0); 
+                        write(STDOUT_FILENO, "\x1b[J", 3); 
+                        std::cout << cmd_accumulator << std::flush;
+                        visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
+                    }
+                    
+                    if (!is_internal) {
+                        synced_with_shell_ = true;
+                        was_visual_mode_ = false; 
+                    }
+                    return true;
+                }
+            }
+            return false;
+        };
 
         while (running_) {
             int ret = poll(&pfd, 1, 100);
@@ -603,9 +703,9 @@ namespace dais::core {
                     // --- VISUAL MODE ENTRY DETECTION ---
                     // Fish: Skip visual mode entirely - Fish's prompt handling is incompatible
                     bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                    bool visual_mode = !is_fish_ && !in_alt_screen_ && (
-                                       (pty_.is_shell_idle() && starts_with_colon) || 
-                                       (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
+                    bool visual_mode = !in_alt_screen_ && (
+                                       starts_with_colon || 
+                                       (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                        );
                     if (visual_mode) {
                         ensure_visual_mode_init();
@@ -643,7 +743,7 @@ namespace dais::core {
                             bool internal_mode = cmd_accumulator.starts_with(":");
                             
                             if ((arrow == 'A' || arrow == 'B') && 
-                                !is_fish_ &&  // Fish handles its own history
+                                (!is_fish_ || internal_mode) &&  // Fish Fix: Allow interception if internal command
                                 (pty_.is_shell_idle() || (is_remote_session_ && internal_mode)) && 
                                 elapsed > 200) {
                                 // Safe to intercept for DAIS history
@@ -659,6 +759,7 @@ namespace dais::core {
                                 cmd_accumulator.clear();
                                 cursor_pos_ = 0;
                                 was_visual_mode_ = false;
+                                synced_with_shell_ = false; // Fresh remote history -> out of sync
                                 // Fallthrough to forward the key to shell naturally
                             }
                             
@@ -666,9 +767,9 @@ namespace dais::core {
                             // If user presses Left (D) or Right (C), handle based on mode.
                             if (arrow == 'C' || arrow == 'D') {
                                 bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                                bool visual_mode = !is_fish_ && !in_alt_screen_ && (
-                                                   (pty_.is_shell_idle() && starts_with_colon) || 
-                                                   (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
+                                bool visual_mode = !in_alt_screen_ && (
+                                                   starts_with_colon || 
+                                                   (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                                    );
 
                                 if (visual_mode) {
@@ -683,7 +784,8 @@ namespace dais::core {
                                 }
 
                                 // Sync history content to shell before cursor movement
-                                sync_history_to_shell(cmd_accumulator);
+                                // Fish Fix: Don't force sync on navigation - Fish manages its own buffer state better
+                                if (!is_fish_) sync_history_to_shell(cmd_accumulator);
                                 
                                 // Track cursor position even after sync so edits go to correct place
                                 if (arrow == 'D' && cursor_pos_ > 0) cursor_pos_--;
@@ -742,7 +844,7 @@ namespace dais::core {
                     // Mark that accumulator is now unreliable for this command.
                     // Only set flag when shell is IDLE (we're actually tracking the command) OR in remote session.
                     if (c == '\t') {
-                        if (pty_.is_shell_idle()) {
+                    if (pty_.is_shell_idle() || (is_fish_ && shell_state_ == ShellState::IDLE)) {
                             // If user navigated history, shell doesn't have the text yet.
                             // Sync shell with accumulator before sending Tab.
                             if (history_navigated_ && !cmd_accumulator.empty()) {
@@ -790,14 +892,19 @@ namespace dais::core {
                     // Only process DAIS commands when at shell prompt (IDLE state)
                     
                     // Check for Enter key (\r or \n) indicating command submission
-                    if (c == '\r' || c == '\n') {
-                        if (visual_mode) {
-                            std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
-                            visual_move_cursor(cursor_pos_, 0);
-                            write(STDOUT_FILENO, "\x1b[J", 3);
-                        }
-                        cursor_pos_ = 0;
-                        was_visual_mode_ = false;
+                        if (c == '\r' || c == '\n') {
+                            // 1. Capture prompt state before any resets
+                            bool was_at_prompt = (shell_state_ == ShellState::IDLE);
+                            // 2. Clear visual mode visuals if needed
+                            if (visual_mode) {
+                                std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
+                                visual_move_cursor(cursor_pos_, 0);
+                                write(STDOUT_FILENO, "\x1b[J", 3);
+                            }
+                            was_visual_mode_ = false;
+                            logo_injected_this_prompt_ = false; 
+                            // NOTE: prompt_buffer_ clear moved below recovery logic
+                            
                         
                         // ═══════════════════════════════════════════════════════════════════════════
                         /// @brief REMOTE COMMAND INTERCEPTION
@@ -880,16 +987,15 @@ namespace dais::core {
                                     execute_internal_command(clean, from_shell_echo);
                                     intercept = true;
                                 }
-                            // Check for standard ls (intercept and use agent)
-                            // Require shell_state_ to be IDLE (we see a prompt) AND remote session to avoid shadowing Native LS
-                            else if ((clean == "ls" || clean.starts_with("ls ")) && shell_state_ == ShellState::IDLE && is_remote_session_) {
-                                auto ls_args = handlers::parse_ls_args(clean);
-                                if (ls_args.supported) {
-                                    handle_remote_ls(ls_args, clean);
-                                    intercept = true;
+                                // Check for standard ls (intercept and use agent)
+                                // Require was_at_prompt to be true to avoid shadowing Native LS inside other commands
+                                else if ((clean == "ls" || clean.starts_with("ls ")) && was_at_prompt && is_remote_session_) {
+                                    auto ls_args = handlers::parse_ls_args(clean);
+                                    if (ls_args.supported) {
+                                        handle_remote_ls(ls_args, clean);
+                                        intercept = true;
+                                    }
                                 }
-                            }
-
                             } // End of !in_alt_screen_ guard
                             
                             if (intercept) {
@@ -897,8 +1003,10 @@ namespace dais::core {
                                 cursor_pos_ = 0;
                                 {
                                     std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                    // Don't clear prompt_buffer_ here, handled naturally by newlines
+                                    prompt_buffer_.clear(); 
                                 }
+                                synced_with_shell_ = false;
+                                shell_state_ = ShellState::RUNNING;
                                 // NOTE: Don't send extra newline here - the injected command already has one
                                 // Sending another causes double prompts
                                 continue; // Skip sending the actual Enter key to remote
@@ -909,8 +1017,6 @@ namespace dais::core {
                         history_navigated_ = false;  // Always reset on Enter
                         tab_used_ = false;           // Reset tab tracking
                         
-                        // --- STATE TRANSITION: IDLE -> RUNNING ---
-                        shell_state_ = ShellState::RUNNING;
                         last_command_time_ = std::chrono::steady_clock::now();  // For debounce
                         
                         // --- THREAD SAFETY: LOCK ---
@@ -920,6 +1026,16 @@ namespace dais::core {
                         }
                         // ---------------------------
                         
+                        // 3. FINAL RESET AND SUBMISSION
+                        // If not intercepted, we are now sending a REAL command to the shell.
+                        // Wipe stale prompt state now to enable clean branding on the resulting prompt.
+                        synced_with_shell_ = false;
+                        shell_state_ = ShellState::RUNNING;
+                        {
+                            std::lock_guard<std::mutex> lock(prompt_mutex_);
+                            prompt_buffer_.clear(); 
+                        }
+
                         // Only save to history when shell is idle AND tab wasn't used
                         // (tab makes accumulator unreliable)
                         if (pty_.is_shell_idle()) {
@@ -933,9 +1049,10 @@ namespace dais::core {
                         
                         // Process DAIS interceptions when shell is idle
                         // Note: ls interception works even with tab (uses path validation)
-                        if (pty_.is_shell_idle() && !in_alt_screen_) {
+                        // Fish Fix: Allow interception if ShellState is IDLE even if pty reports busy
+                        if ((pty_.is_shell_idle() || (is_complex_shell_ && was_at_prompt)) && !in_alt_screen_) {
                             // 1. Detect 'ls' command (with or without arguments)
-                            if (cmd_accumulator == "ls" || cmd_accumulator.starts_with("ls ")) {
+                            if (clean == "ls" || clean.starts_with("ls ")) {
                                 // Check for remote session (SSH)
                                 check_remote_session();
 
@@ -1013,9 +1130,9 @@ namespace dais::core {
                                     
                                     sync_child_cwd(); // Get actual child shell CWD
                                     
-                                    // Parse arguments
-                                    auto ls_args = handlers::parse_ls_args(cmd_accumulator);
-                                    ls_args.padding = config_.ls_padding; // Apply user config padding
+                                     // Parse arguments
+                                     auto ls_args = handlers::parse_ls_args(clean);
+                                     ls_args.padding = config_.ls_padding; // Apply user config padding
                                     
                                     // When tab was used, resolve partial paths using fuzzy matching
                                     std::string resolved_cmd = cmd_accumulator;
@@ -1078,6 +1195,7 @@ namespace dais::core {
                                     cursor_pos_ = 0;
                                     tab_used_ = false;
                                     at_line_start_ = false; // Prompt will handle this
+                                    logo_injected_this_prompt_ = false; // Allow logo on next prompt
                             }
                         }
                     }
@@ -1115,6 +1233,8 @@ namespace dais::core {
                         was_visual_mode_ = false;
                         synced_with_shell_ = false; // New command buffer is empty -> Not synced with whatever shell has
                         tab_used_ = false;  // Reset for next command
+                        logo_injected_this_prompt_ = false; // Allow logo on next prompt
+                        expect_prompt_attempts_ = 0; // Clear any leftover forced attempts from previous internal cmds
                         data_to_write += c;
                     }
                     // Handle Backspace
@@ -1125,40 +1245,7 @@ namespace dais::core {
                         // When using Up-Arrow (shell history), the shell echoes
                         // text that DAIS didn't process. We must scrape the buffer
                         // and "adopt" it into cmd_accumulator to allow local editing.
-                        //
-                        // Guards:
-                        // 1. !was_visual_mode_: User just cleared an internal command.
-                        //    Do NOT adopt the ghost output of that command.
-                        // 2. !intentionally_cleared_: User explicitly deleted the line.
-                        //    Do NOT adopt the result of that deletion.
-                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
-                            CursorRecovery recovery;
-                            {
-                                std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovery = recover_cmd_from_buffer(prompt_buffer_);
-                            }
-                            if (recovery.command.starts_with(":")) {
-                                cmd_accumulator = recovery.command;
-                                cursor_pos_ = recovery.cursor_idx;
-                                ensure_visual_mode_init(cursor_pos_);
-
-                                if (is_remote_session_) {
-                                    // Rewind to start of command (handles wrapping)
-                                    visual_move_cursor(cursor_pos_, 0); 
-                                    // Clear to End of Screen (wipes remote text + wrapped lines)
-                                    std::cout << "\x1b[J"; 
-                                    // Repaint
-                                    std::cout << cmd_accumulator << std::flush;
-                                    // Restore cursor
-                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
-                                }
-                                // Only mark synced for non-internal commands
-                                // `:` commands are visual-only and never synced to shell
-                                if (!cmd_accumulator.starts_with(":")) {
-                                    synced_with_shell_ = true;
-                                }
-                            }
-                        }
+                        adopt_ghost_command();
 
                         // Sync history content to shell before backspace editing
                         sync_history_to_shell(cmd_accumulator);
@@ -1166,9 +1253,9 @@ namespace dais::core {
                         // Check if we are in a DAIS command (: commands stay visual)
                         // Fish: Skip visual mode - Fish handles display differently
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                        bool visual_mode = !is_fish_ && !in_alt_screen_ && !synced_with_shell_ && (
-                                           (pty_.is_shell_idle() && starts_with_colon) || 
-                                           (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
+                        bool visual_mode = !in_alt_screen_ && (
+                                           starts_with_colon || 
+                                           (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                            );
                         
                         if (!cmd_accumulator.empty() && cursor_pos_ > 0) {
@@ -1185,14 +1272,10 @@ namespace dais::core {
                             } else {
                                 data_to_write += c;
                             }
-                        } else if (!visual_mode && !was_visual_mode_) {
-                            // -----------------------------------------------------
-                            // PROMPT PASSTHROUGH
-                            // -----------------------------------------------------
-                            // For normal commands (ls, cat), we revert to standard
-                            // shell behavior. If the buffer is empty, we pass the 
-                            // Backspace to the shell, allowing the user to wipe the
-                            // prompt line if desired.
+                        } else if (!visual_mode) {
+                            // If accumulator is empty, we MUST pass through to shell to allow prompt editing,
+                            // regardless of whether we were just in visual mode. This ensures that
+                            // transition from DAIS command back to shell prompt is seamless.
                             data_to_write += c;
                         }
                         // else: user cleared a command - don't erase prompt
@@ -1201,6 +1284,9 @@ namespace dais::core {
                         if (cmd_accumulator.empty()) {
                             intentionally_cleared_ = true;
                         }
+
+                        // Update sticky state for backspace too
+                        was_visual_mode_ = visual_mode;
                     }
                     // Regular character
                     else if (std::isprint(static_cast<unsigned char>(c))) {
@@ -1212,32 +1298,12 @@ namespace dais::core {
                         // Before letting a new character "leak" to the shell, check
                         // if we should first adopt any existing shell history (ghosts).
                         // Guards same as above (don't adopt if cleared or visual).
-                        if (cmd_accumulator.empty() && !was_visual_mode_ && !intentionally_cleared_) {
-                            CursorRecovery recovery;
-                            {
-                                std::lock_guard<std::mutex> lock(prompt_mutex_);
-                                recovery = recover_cmd_from_buffer(prompt_buffer_);
-                            }
-                            if (recovery.command.starts_with(":")) {
-                                cmd_accumulator = recovery.command;
-                                cursor_pos_ = recovery.cursor_idx;
-                                ensure_visual_mode_init(cursor_pos_);
-
-                                if (is_remote_session_) {
-                                    std::lock_guard<std::recursive_mutex> terminal_lock(terminal_mutex_);
-                                    // Rewind to start of command (handles wrapping)
-                                    visual_move_cursor(cursor_pos_, 0); 
-                                    // Clear to End of Screen (wipes remote text + wrapped lines)
-                                    std::cout << "\x1b[J"; 
-                                    // Repaint
-                                    std::cout << cmd_accumulator << std::flush;
-                                    // Restore cursor
-                                    visual_move_cursor(cmd_accumulator.size(), cursor_pos_);
-                                }
-                                // Only mark synced for non-internal commands
-                                if (!cmd_accumulator.starts_with(":")) {
-                                    synced_with_shell_ = true;
-                                }
+                        if (adopt_ghost_command()) {
+                            // RACE CONDITION FIX: If the printable char 'c' was already 
+                            // echoed by the shell and captured in 'recovery', we must NOT 
+                            // process it again in this loop.
+                            if (!cmd_accumulator.empty() && cmd_accumulator.back() == c) {
+                                continue; 
                             }
                         }
 
@@ -1247,7 +1313,13 @@ namespace dais::core {
                         // Track input if shell is idle OR if we are in a remote session 
                         // (needed for :db interception in SSH)
                         bool starts_with_colon = !cmd_accumulator.empty() && cmd_accumulator[0] == ':';
-                        if (pty_.is_shell_idle() || is_remote_session_ || c == ':') {
+                        
+                        // [SYNC RESET]: If user types ':', we drop sync to enter visual mode
+                        if (c == ':' && cmd_accumulator.empty() && synced_with_shell_) {
+                            synced_with_shell_ = false;
+                        }
+
+                        if ((pty_.is_shell_idle() || is_remote_session_ || c == ':' || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) && !in_alt_screen_) {
                             if (cursor_pos_ > cmd_accumulator.size()) cursor_pos_ = cmd_accumulator.size();
                             cmd_accumulator.insert(cursor_pos_, 1, c);
                             cursor_pos_++;
@@ -1260,9 +1332,9 @@ namespace dais::core {
                         // GUARD: Disable visual mode in alternate screen (Vim) so keys pass through logic
                         // GUARD: Disable visual mode if command is SYNCED with shell (e.g. from history recall)
                         // GUARD: Fish disabled - its prompt handling is incompatible with DAIS visual mode
-                        bool visual_mode = !is_fish_ && !in_alt_screen_ && !synced_with_shell_ && (
-                                           (pty_.is_shell_idle() && starts_with_colon) || 
-                                           (!pty_.is_shell_idle() && is_remote_session_ && starts_with_colon)
+                        bool visual_mode = !in_alt_screen_ && (
+                                           starts_with_colon || 
+                                           (!is_fish_ && !cmd_accumulator.empty() && !synced_with_shell_ && (pty_.is_shell_idle() || is_remote_session_))
                                            );
                         
                         if (visual_mode) {
@@ -1282,9 +1354,10 @@ namespace dais::core {
                             data_to_write += c;
                         }
                         
-                        // Update sticky state for next iteration (only SET, never reset until Enter)
-                        if (visual_mode) was_visual_mode_ = true;
-                        intentionally_cleared_ = false; // Typing indicates intent to start new command
+                        // Update sticky state for next iteration
+                        // Visual mode is only for internal commands (:)
+                        was_visual_mode_ = visual_mode;
+                        intentionally_cleared_ = false; 
                     }
                     // Non-printable (control chars, etc.) - always pass through
                     else {
@@ -1358,14 +1431,23 @@ namespace dais::core {
              write(pty_.get_master_fd(), block.c_str(), block.size());
              
              // Sync our local command tracker for remote session interception
-             if (pty_.is_shell_idle() || is_remote_session_) {
+             if ((pty_.is_shell_idle() || is_remote_session_ || (is_complex_shell_ && shell_state_ == ShellState::IDLE)) && !in_alt_screen_) {
                 input_accumulator_ += block;
+                // Cursor Fix: Update cursor position to end of pasted block
+                cursor_pos_ = input_accumulator_.size();
+                
+                if (!block.starts_with(":")) {
+                    synced_with_shell_ = true;
+                }
+                was_visual_mode_ = false;
              }
         }
 
         paste_accumulator_.clear();
         bracketed_paste_active_ = false;
         cursor_pos_ = input_accumulator_.size();
+        logo_injected_this_prompt_ = false; // Allow logo on next prompt
+        intentionally_cleared_ = false; 
     }
 
     // ═══════════════════════════════════════════════════════════════════════════
@@ -1385,21 +1467,55 @@ namespace dais::core {
 
         // Echo command only if user typed it fresh (not from shell history recall)
         // Fish: Just print newline - Fish handles its own command display, we only need separation
+        // Echo handling logic tailored for specific shell behaviors:
+        
+        // 1. Fish: Handles its own display and history. 
+        // We only need a newline to separate the command from output.
         if (is_fish_) {
             std::cout << "\r\n" << std::flush;
-        } else if (!from_shell_echo) {
-            // ZSH: Add logo for DAIS internal commands since pass-through injection is disabled
-            // This is the only place ZSH gets logos for :commands
-            if (is_complex_shell_ && config_.show_logo) {
-                std::string logo_str = handlers::Theme::RESET + "[" + handlers::Theme::LOGO + "-" + handlers::Theme::RESET + "] ";
-                std::cout << logo_str << clean << "\r\n" << std::flush;
-            } else {
+        } 
+        // 2. Zsh (Complex Shell but not Fish): 
+        // Needs text restoration because visual mode buffer often gets cleared on Enter.
+        // Needs explicit logo state force because macOS prompts don't always trigger it.
+        else if (is_complex_shell_) {
+            // Restore command text. removed \r prefix to prevent overwriting prompt line start.
+            // We trust that if Zsh cleared the line, we are at start. If not, we append.
+            if (!from_shell_echo) {
                 std::cout << clean << "\r\n" << std::flush;
+            } else {
+                std::cout << "\r\n" << std::flush;
             }
-        } else {
-            // Shell already echoed command - just print newline to separate from output
-            std::cout << "\r\n" << std::flush;
+            at_line_start_ = true;
+            logo_injected_this_prompt_ = false; // Allow logo on next prompt
+            expect_prompt_attempts_ = 5; // Allow up to 5 injection attempts (handles ^U echo + clear + prompt)
+            
+            // Force re-sync: We injected a command, so shell state is now "Busy" or "Unknown".
+            // This forces prompt detection to wait for a valid prompt match (last line) before declaring IDLE.
+            synced_with_shell_ = false; 
+            shell_state_ = ShellState::RUNNING; // Assume busy until prompt match
+            {
+                std::lock_guard<std::mutex> lock(prompt_mutex_);
+                prompt_buffer_.clear(); // Wipe stale prompt
+            }
+        } 
+        // 3. Bash/Others: 
+        else {
+            if (!from_shell_echo) {
+                std::cout << clean << "\r\n" << std::flush;
+            } else {
+                std::cout << "\r\n" << std::flush;
+            }
+            at_line_start_ = true;
+            logo_injected_this_prompt_ = false; // Allow logo on next prompt
+            synced_with_shell_ = false;
+            shell_state_ = ShellState::RUNNING;
+            {
+                std::lock_guard<std::mutex> lock(prompt_mutex_);
+                prompt_buffer_.clear();
+            }
         }
+
+        (void)from_shell_echo;
 
         // Persist to local history (skip remote sessions and :history itself to avoid loops)
         if (!is_remote_session_ && !clean.starts_with(":history")) {
@@ -1509,7 +1625,11 @@ namespace dais::core {
                        handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "asc" + pipe + "desc" + handlers::Theme::STRUCTURE + "] " +
                        handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "true" + pipe + "false" + handlers::Theme::STRUCTURE + "] " +
                        handlers::Theme::STRUCTURE + "[" + handlers::Theme::SYMLINK + "h" + pipe + "v" + handlers::Theme::STRUCTURE + "]\r\n";
-                write(STDOUT_FILENO, msg.c_str(), msg.size());
+                if (is_complex_shell_) {
+                    write(STDOUT_FILENO, msg.c_str(), msg.size());
+                } else {
+                    std::cout << msg << std::flush;
+                }
             } else {
                 std::stringstream ss(args);
                 std::string segment;
@@ -1544,7 +1664,11 @@ namespace dais::core {
                     confirm += "Dirs 1st  " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + (config_.ls_dirs_first ? "true" : "false") + handlers::Theme::RESET + "\r\n";
                     confirm += "Flow      " + handlers::Theme::STRUCTURE + ": " + handlers::Theme::VALUE + config_.ls_flow + handlers::Theme::RESET + "\r\n";
                 }
-                write(STDOUT_FILENO, confirm.c_str(), confirm.size());
+                if (is_complex_shell_) {
+                    write(STDOUT_FILENO, confirm.c_str(), confirm.size());
+                } else {
+                    std::cout << confirm << std::flush;
+                }
             }
 
             if (is_remote_session_) {
@@ -1962,17 +2086,7 @@ namespace dais::core {
             // Adjust cursor index to be relative to the start of the command
             int relative_cursor = static_cast<int>(cursor) - static_cast<int>(best_pos + prompt_len);
             if (relative_cursor < 0) relative_cursor = 0;
-            if (relative_cursor > recovered.size()) relative_cursor = recovered.size();
-            
-            // DEEP CLEAN: Strip any remaining non-printable chars
-            std::string deep_clean;
-            for (char c : recovered) {
-                if (std::isprint(static_cast<unsigned char>(c))) {
-                    deep_clean += c;
-                }
-            }
-            if (!deep_clean.empty()) recovered = deep_clean;
-            if (relative_cursor > recovered.size()) relative_cursor = recovered.size();
+            if (relative_cursor > static_cast<int>(recovered.size())) relative_cursor = static_cast<int>(recovered.size());
 
             return {recovered, relative_cursor};
         }
@@ -2004,15 +2118,47 @@ namespace dais::core {
                     if (length > 0) length--;
                 } else if (c == '\x1b') {
                     state = 1;
+                } else if (c == '\t') {
+                    // Standard tab stop every 8 characters
+                    length = (length + 8) & ~7;
                 } else if (std::isprint(static_cast<unsigned char>(c))) {
                     length++;
+                } else {
+                    // HEURISTIC: Basic UTF-8 Support
+                    // If byte is a UTF-8 Start Byte (0xC0-0xF7) OR standard ascii > 32?
+                    // actually isprint handles ascii.
+                    // We just need to catch the start of a multi-byte sequence.
+                    // UTF-8 Start Byte: 11xxxxxx (0xC0+)
+                    // Continuation Byte: 10xxxxxx (0x80-0xBF) -> Ignore
+                    unsigned char uc = static_cast<unsigned char>(c);
+                    if ((uc & 0xC0) != 0x80 && uc > 127) {
+                         // Assume 1 column width for typical powerline symbols
+                         // Emoji might be 2, but 1 is better than 0.
+                         length++;
+                    }
                 }
             } else if (state == 1) { // After ESC
                 if (c == '[') state = 2; // CSI
                 else if (c == ']') state = 3; // OSC
                 else state = 0; // 1-char sequence (or unknown)
             } else if (state == 2) { // CSI
-                if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
+                // Handle "K" (Erase in Line) - often used in prompts to clear old text
+                // If we see \x1b[K or \x1b[0K, it clears from cursor to end.
+                // If we see \x1b[2K, it clears the whole line.
+                // For simplified visual width calculation, we assume K at the end of a prompt behavior
+                // resets the 'valid' width if it follows a CR. 
+                // However, more commonly, \r + \x1b[K means "start over".
+                if (c == 'K') {
+                   // If we just had a CR (length 0), then K confirms the line is empty.
+                   // If we had text, K clears it? No, K clears *after* cursor.
+                   // But \x1b[2K clears everything.
+                   // Since we don't parse the parameter (n), let's assume worst case for safety or just ignore?
+                   // BETTER: If we detect [2K, reset length. 
+                   // But we aren't parsing numbers here. 
+                   // Let's at least handle the state transition.
+                   state = 0;
+                }
+                else if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
             } else if (state == 3) { // OSC
                 if (c == '\x07' || c == '\x1b') state = 0; // Bell or start of ST
             }

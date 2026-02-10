@@ -211,8 +211,12 @@ namespace dais::core {
      * @return true if synchronization occurred.
      */
     bool Engine::sync_history_to_shell(std::string& accumulator) {
-        if (!history_navigated_ || !pty_.is_shell_idle() || 
-            accumulator.empty() || accumulator.starts_with(":")) {
+        if ((synced_with_shell_ && !history_navigated_) || accumulator.empty() || accumulator.starts_with(":")) {
+            return false;
+        }
+        
+        // Only require shell idle for local sessions (where it's reliable)
+        if (!is_remote_session_ && !pty_.is_shell_idle()) {
             return false;
         }
         
@@ -228,6 +232,15 @@ namespace dais::core {
         write(pty_.get_master_fd(), &kill_line, 1);
         write(pty_.get_master_fd(), accumulator.c_str(), accumulator.size());
         
+        // Cursor Sync: If local cursor is not at end, send Left Arrows to match
+        if (cursor_pos_ < accumulator.size()) {
+            std::string left_arrows;
+            for (size_t i = 0; i < accumulator.size() - cursor_pos_; ++i) {
+                left_arrows += "\x1b[D";
+            }
+            write(pty_.get_master_fd(), left_arrows.c_str(), left_arrows.size());
+        }
+
         history_navigated_ = false;
         synced_with_shell_ = true;
         return true;
