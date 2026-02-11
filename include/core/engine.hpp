@@ -316,6 +316,14 @@ namespace dais::core {
         // =====================================================================
         // Allows the main thread to capture PTY output temporarily.
         std::atomic<bool> capture_mode_ = false;
+        std::atomic<bool> suppress_output_{false}; ///< True during agent/db deployment to silence all PTY output
+        
+        /// @brief RAII guard that sets suppress_output_ on construction and clears it on destruction.
+        struct ScopedSuppression {
+            std::atomic<bool>& flag;
+            ScopedSuppression(std::atomic<bool>& f) : flag(f) { flag = true; }
+            ~ScopedSuppression() { flag = false; }
+        };
         std::string capture_buffer_;
         std::mutex capture_mutex_;
         std::condition_variable capture_cv_;

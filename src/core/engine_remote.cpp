@@ -253,6 +253,9 @@ namespace dais::core {
         if (remote_agent_deployed_ || !is_remote_session_ || agent_deployment_failed_) return;
         if (!is_remote_session_ && !pty_.is_shell_idle()) return;
         
+        // Silence all PTY output during deployment (RAII — clears on any exit)
+        ScopedSuppression suppression(suppress_output_);
+        
         // 1. Detect Architecture
         std::string out = execute_remote_command("uname -m", 5000);
         if (out.empty()) out = execute_remote_command("uname -a", 5000);
@@ -354,29 +357,8 @@ namespace dais::core {
                 std::string start_heredoc = " cat > " + temp_b64 + " << 'DAIS_EOF'\n";
                 write(pty_.get_master_fd(), start_heredoc.c_str(), start_heredoc.size());
                 
-                // BACKGROUND DRAINER
-                // Start a thread to drain the PTY output (echoes, PS2 prompts) while we write.
-                // If we don't drain, the PTY buffer can fill up, causing 'write' to block 
-                // or the remote shell to block on output, leading to severe slowdowns.
-                std::atomic<bool> draining{true};
-                std::thread drainer([&]() {
-                    char buf[4096];
-                    while (draining) {
-                        // Non-blocking read? No, we can't easily set non-blocking on the same FD 
-                        // without affecting the main thread if not careful. 
-                        // Use select/poll with timeout to avoid blocking forever.
-                        fd_set set;
-                        FD_ZERO(&set);
-                        FD_SET(pty_.get_master_fd(), &set);
-                        struct timeval timeout = {0, 10000}; // 10ms
-                        if (select(pty_.get_master_fd() + 1, &set, nullptr, nullptr, &timeout) > 0) {
-                            read(pty_.get_master_fd(), buf, sizeof(buf));
-                        } else {
-                            // Check quit condition even if no data
-                            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                        }
-                    }
-                });
+                // BACKGROUND DRAINER REMOVED:
+                // forward_shell_output() now handles draining by discarding data when suppress_output_ is true.
 
                 // CHUNKED TRANSMISSION WITH LINE WRAPPING (76 chars)
                 size_t sent = 0;
@@ -413,10 +395,8 @@ namespace dais::core {
                 std::string end_heredoc = "\r\nDAIS_EOF\r\n";
                 write(pty_.get_master_fd(), end_heredoc.c_str(), end_heredoc.size());
                 
-                // Allow drainer to finish clearing up any trailing echoes
+                // Allow drainer (main thread output loop) to finish clearing up any trailing echoes
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                draining = false;
-                if (drainer.joinable()) drainer.join();
 
                 execute_remote_command("stty echo", 2000);
                 execute_remote_command("set -o history", 1000); // Restore history

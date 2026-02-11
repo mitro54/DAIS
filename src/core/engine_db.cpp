@@ -388,6 +388,9 @@ namespace dais::core {
      */
     void Engine::deploy_remote_db_handler() {
         if (remote_db_deployed_ || !is_remote_session_) return;
+        
+        // Silence all PTY output during deployment (RAII — clears on any exit)
+        ScopedSuppression suppression(suppress_output_);
               
         std::string script_content;
         try {

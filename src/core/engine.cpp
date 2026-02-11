@@ -396,6 +396,13 @@ namespace dais::core {
                     continue; // Skip printing
                 }
 
+                // DEPLOYMENT SUPPRESSION:
+                // During agent/db injection, discard all output to prevent
+                // logo spam and empty line pollution.
+                if (suppress_output_) {
+                    continue; 
+                }
+
                 // --- PASS-THROUGH MODE ---
                 // Forward shell output to terminal with optional logo injection.
                 // Uses class members prompt_buffer_ and pass_through_esc_state_ for state.
@@ -674,6 +681,10 @@ namespace dais::core {
                      pending_remote_deployment_ = false;
                      deploy_remote_agent();
                      deploy_remote_db_handler();
+                     // Nudge the shell to redraw its prompt.
+                     // The original prompt was discarded during suppression,
+                     // so send an empty Enter to get a fresh one.
+                     write(pty_.get_master_fd(), "\n", 1);
                 }
                 continue;
             }
