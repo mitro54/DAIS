@@ -49,6 +49,10 @@ add_custom_command(
     OUTPUT ${CMAKE_SOURCE_DIR}/include/core/dais_agents.hpp
     COMMAND bash ${CMAKE_SOURCE_DIR}/src/remote/build_agents.sh
     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+    DEPENDS 
+        ${CMAKE_SOURCE_DIR}/src/remote/agent.cpp
+        ${CMAKE_SOURCE_DIR}/src/remote/build_agents.sh
+        ${CMAKE_SOURCE_DIR}/src/remote/generate_header.py
     COMMENT "Building remote agents and generating header..."
     VERBATIM
 )
@@ -84,3 +88,16 @@ endif()
 
 # Install the Main Executable
 install(TARGETS DAIS DESTINATION bin)
+
+# =============================================================================
+# Unit Tests (Standalone, no PTY/pybind11 dependencies)
+# =============================================================================
+enable_testing()
+
+add_executable(test_safety EXCLUDE_FROM_ALL tests/test_safety.cpp)
+target_include_directories(test_safety PRIVATE include)
+set_target_properties(test_safety PROPERTIES
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+)
+add_test(NAME SafetyTests COMMAND test_safety)

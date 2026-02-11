@@ -124,6 +124,12 @@ jobs:
         run: |
           docker run --rm dais-test:${{ matrix.distro }} bash ./tests/test_build.sh
 
+      - name: Run safety unit tests
+        run: |
+          docker run --rm dais-test:${{ matrix.distro }} bash -c "
+            cd build && cmake --build . --target test_safety && ctest --test-dir . --output-on-failure -R SafetyTests
+          "
+
       - name: Run functional tests
         run: |
           docker run --rm -t dais-test:${{ matrix.distro }} bash -c "
@@ -181,6 +187,10 @@ jobs:
         run: |
           chmod +x tests/test_build.sh
           bash ./tests/test_build.sh
+
+      - name: Run safety unit tests
+        run: |
+          cd build && cmake --build . --target test_safety && ctest --output-on-failure -R SafetyTests
 
       - name: Run functional tests
         run: |

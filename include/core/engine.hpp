@@ -324,7 +324,9 @@ namespace dais::core {
             ScopedSuppression(std::atomic<bool>& f) : flag(f) { flag = true; }
             ~ScopedSuppression() { flag = false; }
         };
+        static constexpr size_t MAX_CAPTURE_SIZE = 64 * 1024 * 1024; // 64 MB hard cap
         std::string capture_buffer_;
+        bool capture_overflow_ = false;  ///< True if capture was truncated due to size
         std::mutex capture_mutex_;
         std::condition_variable capture_cv_;
         

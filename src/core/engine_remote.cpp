@@ -108,6 +108,7 @@ namespace dais::core {
         {
             std::lock_guard<std::mutex> lock(capture_mutex_);
             capture_buffer_.clear();
+            capture_overflow_ = false;
             capture_mode_ = true;
         }
 
