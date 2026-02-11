@@ -26,61 +26,62 @@ namespace dais::core {
      * modified at runtime via internal commands like :ls.
      */
     struct Config {
-        /// Whether to display the [-] logo prefix on each output line.
+        /// @brief Whether to display the [-] logo prefix on each output line.
         bool show_logo = true;
         
-        /// Shell prompt patterns used to detect when shell is waiting for input.
+        /// @brief Shell prompt patterns used to detect when shell is waiting for input.
         std::vector<std::string> shell_prompts = {"$ ", "% ", "> ", "# ", "➜ ", "❯ "};
         
         // =====================================================================
         // LS FORMAT TEMPLATES
         // =====================================================================
         // Configurable templates for 'ls' output formatting.
-        // 
         // Data placeholders: {name}, {size}, {rows}, {cols}, {count}
         // Color placeholders: {RESET}, {STRUCTURE}, {UNIT}, {VALUE}, {ESTIMATE}, {TEXT}, {SYMLINK}
-        // 
         // Note: {size} and {rows} include embedded coloring internally.
         
-        std::string ls_fmt_directory   = "{TEXT}{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})";
-        std::string ls_fmt_text_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
-        std::string ls_fmt_data_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})";
-        std::string ls_fmt_binary_file = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE})";
-        std::string ls_fmt_error       = "{TEXT}{name}";
+        std::string ls_fmt_directory   = "{TEXT}{name}{STRUCTURE}/ ({VALUE}{count} {UNIT}items{STRUCTURE})"; ///< Format for directory entries
+        std::string ls_fmt_text_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})"; ///< Format for text files
+        std::string ls_fmt_data_file   = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE}, {rows} {UNIT}R{STRUCTURE}, {VALUE}{cols} {UNIT}C{STRUCTURE})"; ///< Format for data files (CSV, JSON)
+        std::string ls_fmt_binary_file = "{TEXT}{name} {STRUCTURE}({size}{STRUCTURE})"; ///< Format for binary/other files
+        std::string ls_fmt_error       = "{TEXT}{name}"; ///< Format for files offering read errors
         
         // =====================================================================
         // LS SORT OPTIONS
         // =====================================================================
-        // Runtime-modifiable via :ls command:
-        //   :ls          - Show current settings
-        //   :ls d        - Reset to defaults  
-        //   :ls <by> [order] [dirs_first] - e.g., :ls size desc false
-        //
-        // These are loaded from config.py LS_SORT dictionary at startup.
         
-        std::string ls_sort_by = "type";      ///< "name", "size", "type", "rows", "none"
-        std::string ls_sort_order = "asc";    ///< "asc" or "desc"
-        bool ls_dirs_first = true;            ///< Group directories before files
-        std::string ls_flow = "h";            ///< "h" (horizontal) or "v" (vertical)
+        std::string ls_sort_by = "type";      ///< Sort field: "name", "size", "type", "rows", "none"
+        std::string ls_sort_order = "asc";    ///< Sort order: "asc" or "desc"
+        bool ls_dirs_first = true;            ///< If true, directories are listed before files
+        std::string ls_flow = "h";            ///< Visual flow: "h" (horizontal) or "v" (vertical)
         int ls_padding = 4;                   ///< Grid padding (spaces between columns)
 
         // =====================================================================
         // DB CONFIG
         // =====================================================================
-        std::string db_type = "sqlite";       ///< "sqlite" or "duckdb"
-        std::string db_source = "";           ///< Path to DB file
-        // Note: Saved queries are handled in Python to keep C++ simple
+        std::string db_type = "sqlite";       ///< Database type: "sqlite" or "duckdb"
+        std::string db_source = "";           ///< Path to database file or connection string
     };
 
+    /**
+     * @brief The core runtime engine of the DAIS shell.
+     * 
+     * Manages:
+     * - The PTY session (child shell process).
+     * - Bi-directional I/O forwarding.
+     * - Python plugin system.
+     * - Command interception and custom logic (ls, :db).
+     * - State synchronization (CWD, environment).
+     */
     class Engine {
     public:
         // --- Input Tracking for Paste/Fast Type ---
-        std::string input_accumulator_;
-        std::mutex input_mutex_;
+        std::string input_accumulator_;        ///< Buffers user input before sending to shell
+        std::mutex input_mutex_;               ///< Protects input_accumulator_
         
         // --- CONSTANTS ---
         static constexpr char kCtrlU = '\x15';     ///< Clear Line
-        static constexpr char kCtrlC = '\x03';     ///< Interrupt
+        static constexpr char kCtrlC = '\x03';     ///< Interrupt (SIGINT)
         static constexpr char kCtrlA = '\x01';     ///< Start of Line
         static constexpr char kCtrlK = '\x0b';     ///< Kill to End of Line
         static constexpr char kBell  = '\x07';     ///< Bell / Sentinel Marker
@@ -114,25 +115,29 @@ namespace dais::core {
          */
         void load_configuration(const std::string& path);
         
-        // Helper to allow main.cpp to resize window
+        /**
+         * @brief Resizes the PTY window to match the parent terminal.
+         * @param rows Number of rows.
+         * @param cols Number of columns.
+         */
         void resize_window(int rows, int cols) {
             terminal_cols_ = cols;
             pty_.resize(rows, cols, config_.show_logo);
         }
 
     private:
-        PTYSession pty_;
-        std::atomic<bool> running_;
-        std::atomic<bool> at_line_start_{true};
-        Config config_;
-        std::filesystem::path shell_cwd_ = std::filesystem::current_path();
+        PTYSession pty_;                       ///< The underlying PTY session wrapper
+        std::atomic<bool> running_;            ///< Flag to control the main loop
+        std::atomic<bool> at_line_start_{true};///< True if cursor is at the start of a line (for logo injection)
+        Config config_;                        ///< Current configuration
+        std::filesystem::path shell_cwd_ = std::filesystem::current_path(); ///< Current Working Directory of the shell
 
         // --- SHELL DETECTION (set once in constructor, read-only after) ---
         // These flags control shell-specific compatibility workarounds.
         // - is_complex_shell_: True for Zsh/Fish. Enables delayed logo injection after escapes.
         // - is_fish_: True for Fish only. Disables pass-through logo injection entirely.
-        bool is_complex_shell_ = false;
-        bool is_fish_ = false;
+        bool is_complex_shell_ = false;        ///< True for Zsh, Fish (handle complex prompts/redraws)
+        bool is_fish_ = false;                 ///< True specifically for Fish shell quirks
         
         // Active command being intercepted (protected by state_mutex_)
         std::string current_command_;
@@ -151,15 +156,24 @@ namespace dais::core {
         void process_user_input();
         
         /**
+         * @brief struct for recovering command from buffer.
+         */
+        struct CursorRecovery {
+            std::string command;
+            int cursor_idx;
+        };
+
+        /**
          * @brief Recovers the user's typed command from the raw shell output buffer.
          * 
          * Simulates a robust terminal (handling ANSI color codes, cursor movements, and line clearing)
          * to reconstruct exactly what is visible on the screen.
          * Crucial for intercepting commands from shell history where input is echoed by the shell.
          * 
-         * @param raw_buffer The raw PTY output buffer containing prompts, echoes, and control codes.
-         * @return std::string The cleaned, reconstructed command string.
+         * @param buffer The raw PTY output buffer containing prompts, echoes, and control codes.
+         * @return CursorRecovery struct containing the cleaned command and cursor position.
          */
+        CursorRecovery recover_cmd_from_buffer(const std::string& buffer);
         
         /**
          * @brief Execute DAIS internal commands (prefixed with ':')
@@ -171,13 +185,14 @@ namespace dais::core {
         void execute_internal_command(const std::string& cmd, bool from_shell_echo = false);
 
         // --- THREAD SAFETY ---
-        std::mutex state_mutex_;
+        std::mutex state_mutex_;               ///< Protects general engine state
         mutable std::recursive_mutex terminal_mutex_;    ///< Synchronizes all writes to STDOUT_FILENO (Recursive for nested UI calls)
 
         // --- PASS-THROUGH MODE STATE (only accessed from forward_shell_output thread) ---
         mutable std::mutex prompt_mutex_;      ///< Protects prompt_buffer_
         std::string prompt_buffer_;            ///< Last ~1024 chars for prompt/command detection
         int pass_through_esc_state_ = 0;       ///< ANSI escape sequence state machine (0=normal)
+        int output_esc_state_ = 0;             ///< Lightweight ESC state for BEL suppression (0=normal, 1=ESC, 2=OSC)
         bool logo_injected_this_prompt_ = false; ///< Prevents multiple logos on the same prompt (e.g. multi-line)
         int expect_prompt_attempts_ = 0;       ///< Force logo injection for N attempts (bypass idle check)
         
@@ -187,20 +202,28 @@ namespace dais::core {
         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};
 
         // python state
-        py::scoped_interpreter guard{}; 
-        std::vector<py::module_> loaded_plugins_;
+        py::scoped_interpreter guard{};        ///< Scoped interpreter initializes/finalizes Python
+        std::vector<py::module_> loaded_plugins_; ///< List of loaded Python extension modules
 
-
-
+        /**
+         * @brief Triggers a hook in all loaded Python plugins.
+         * @param hook_name Name of the function to call (e.g., "on_enter").
+         * @param data Optional data string to pass to the hook.
+         */
         void trigger_python_hook(const std::string& hook_name, const std::string& data);
 
-        /** * @brief Queries the OS to get the actual CWD of the child shell process.
+        /** 
+         * @brief Queries the OS to get the actual CWD of the child shell process.
          * Essential for handling TAB completion where input buffer doesn't match path.
          */
         void sync_child_cwd();
         
-        /** @brief Resolves partial paths using fuzzy component matching.
+        /** 
+         * @brief Resolves partial paths using fuzzy component matching.
          * Used to recover tab-completed paths from incomplete accumulator data.
+         * @param partial The partial path entered by the user.
+         * @param cwd The current working directory context.
+         * @return The best matching filesystem path.
          */
         std::filesystem::path resolve_partial_path(
             const std::string& partial, 
@@ -237,7 +260,7 @@ namespace dais::core {
         std::atomic<int> terminal_cols_{80};        ///< Current terminal width
         int initial_prompt_cols_ = 0;              ///< Prompt width when visual mode started
         bool was_visual_mode_ = false;              ///< For detecting entry into visual mode
-        bool bracketed_paste_active_ = false;       ///< True if we are inside a \e[200~ ... \e[201~ block
+        bool bracketed_paste_active_ = false;       ///< True if we are inside a bracketed paste block
         std::string paste_accumulator_;             ///< Local buffer for pasted text
         std::atomic<bool> in_more_pager_{false};    ///< True when "--More--" is detected (for arrow key translation)
         static constexpr size_t MAX_HISTORY = 1000; ///< Max stored commands (like bash)
@@ -251,11 +274,6 @@ namespace dais::core {
         void load_history();                        ///< Load from file on startup
         void save_history_entry(const std::string& cmd);  ///< Append to file
 
-        struct CursorRecovery {
-            std::string command;
-            int cursor_idx;
-        };
-        CursorRecovery recover_cmd_from_buffer(const std::string& buffer); ///< Helper to recover command and cursor
         void show_history(const std::string& args); ///< Handle :history command
         void navigate_history(int direction, std::string& current_line); ///< Arrow key nav
         

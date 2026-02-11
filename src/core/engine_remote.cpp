@@ -461,7 +461,6 @@ namespace dais::core {
         }
 
         // 4. Fallback Failure
-        // 4. Fallback Failure
         agent_deployment_failed_ = true; // Mark as failed to prevent retry spam
         if (config_.show_logo) {
             std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "-" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET 

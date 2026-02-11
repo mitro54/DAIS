@@ -497,7 +497,28 @@ namespace dais::core {
                             }
                         }
                         
-                        write(STDOUT_FILENO, &c, 1);
+                        // BELL SUPPRESSION (Remote Sessions):
+                        // Bare BEL (0x07) causes audible/visual bell on backspace-at-empty,
+                        // failed tab completion, etc. In remote sessions this is very frequent.
+                        // BUT: BEL also terminates OSC sequences (ESC ] ... BEL). Stripping 
+                        // those would leave the terminal stuck in OSC mode, breaking all ANSI output.
+                        // We check if BEL is an OSC terminator BEFORE updating state.
+                        bool bel_is_osc_terminator = (c == '\x07' && output_esc_state_ == 2);
+                        
+                        // Update lightweight escape state for next character
+                        if (c == '\x1b') {
+                            output_esc_state_ = 1;
+                        } else if (output_esc_state_ == 1) {
+                            output_esc_state_ = (c == ']') ? 2 : 0;
+                        } else if (bel_is_osc_terminator) {
+                            output_esc_state_ = 0;
+                        }
+                        
+                        bool suppress_bel = (c == '\x07' && is_remote_session_ && !bel_is_osc_terminator);
+                        
+                        if (!suppress_bel) {
+                            write(STDOUT_FILENO, &c, 1);
+                        }
                         
                         if (c == '\n') {
                             at_line_start_ = true;
@@ -511,7 +532,7 @@ namespace dais::core {
                         // ALWAYS capture to prompt_buffer_ (printable AND control chars)
                         // EXCEPTION: Don't store the newline that just cleared or reset the line.
                         // We NOW allow \r so that recover_cmd_from_buffer can handle line redrawing.
-                        if (c != '\n') { 
+                        if (c != '\n' && !suppress_bel) { 
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_ += c;
                         }    
@@ -1914,15 +1935,16 @@ namespace dais::core {
     }
 
     /**
-     * @brief Recovers a clean command string from the prompt buffer by simulating terminal behavior.
+     * @brief Helper to reconstruct the definitive command string from raw PTY output.
      * 
-     * Handles ANSI escape codes, cursor movements (backspace, carriage return, CSI C/D),
-     * and line clearing (CSI 1K/2K) to reconstruct what is visually present on the line.
-     * This is crucial for intercepting commands from shell history where the input
-     * comes from the shell's echo rather than user keystrokes.
+     * The PTY output contains the command echo (sometimes), control characters,
+     * backspaces, color codes, and line wraps. This function simulates a terminal
+     * to determine exactly what the user sees as the "current command line".
      * 
-     * @param buffer The raw PTY output buffer containing prompts, commands, and ANSI codes.
-     * @return A CursorRecovery struct with the command and local cursor index.
+     * Essential for robust history adoption and cursor tracking.
+     * 
+     * @param buffer Raw output from the PTY since the last prompt.
+     * @return CursorRecovery struct with the clean command string and cursor index.
      */
     Engine::CursorRecovery Engine::recover_cmd_from_buffer(const std::string& buffer) {
         // 1. Terminal Simulation (Cursor & Overwrite)

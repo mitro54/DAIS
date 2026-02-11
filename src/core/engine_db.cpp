@@ -464,7 +464,7 @@ namespace dais::core {
     /**
      * @brief Checks if 'less' is available on the remote host.
      * 
-     * If not found, informs the user (onc per session) that pagination 
+     * If not found, informs the user (once per session) that pagination 
      * is disabled and they should install it for a better experience.
      */
     bool Engine::check_and_offer_less_install() {

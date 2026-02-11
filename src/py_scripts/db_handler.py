@@ -110,6 +110,7 @@ class SqliteAdapter(DBAdapter):
             self.conn.close()
 
 class DuckDbAdapter(DBAdapter):
+    """Adapter for DuckDB (OLAP/Analytical workloads)."""
     def __init__(self):
         self.conn = None
     
@@ -131,6 +132,7 @@ class DuckDbAdapter(DBAdapter):
             self.conn.close()
 
 class PostgresAdapter(DBAdapter):
+    """Adapter for PostgreSQL using psycopg2."""
     def __init__(self):
         self.conn = None
         self.cursor = None
@@ -166,6 +168,7 @@ class PostgresAdapter(DBAdapter):
         if self.conn: self.conn.close()
 
 class MySqlAdapter(DBAdapter):
+    """Adapter for MySQL/MariaDB using mysql-connector-python."""
     def __init__(self):
         self.conn = None
         self.cursor = None
@@ -638,7 +641,12 @@ def handle_command(cmd_input, cwd):
             if query in config.DB_QUERIES:
                 query = config.DB_QUERIES[query]
 
-        return run_query(query, db_type, db_source.replace("_PROJECT_ROOT", cwd) if "_PROJECT_ROOT" in db_source else db_source, adapter_kwargs)
+        return run_query(
+            query, 
+            db_type, 
+            db_source.replace("_PROJECT_ROOT", cwd) if "_PROJECT_ROOT" in db_source else db_source, 
+            adapter_kwargs
+        )
 
     except Exception as e:
          return json.dumps({"status": "error", "message": f"Unexpected Handler Error: {str(e)}"})
