@@ -13,6 +13,7 @@
 #include "core/command_handlers.hpp"
 #include "core/config_loader.hpp"
 #include "core/help_text.hpp"
+#include "core/base64.hpp"
 #include <cstdio>
 #include <thread>
 #include <chrono>
@@ -395,6 +396,13 @@ namespace dais::core {
                     continue; // Skip printing
                 }
 
+                // DEPLOYMENT SUPPRESSION:
+                // During agent/db injection, discard all output to prevent
+                // logo spam and empty line pollution.
+                if (suppress_output_) {
+                    continue; 
+                }
+
                 // --- PASS-THROUGH MODE ---
                 // Forward shell output to terminal with optional logo injection.
                 // Uses class members prompt_buffer_ and pass_through_esc_state_ for state.
@@ -496,7 +504,28 @@ namespace dais::core {
                             }
                         }
                         
-                        write(STDOUT_FILENO, &c, 1);
+                        // BELL SUPPRESSION (Remote Sessions):
+                        // Bare BEL (0x07) causes audible/visual bell on backspace-at-empty,
+                        // failed tab completion, etc. In remote sessions this is very frequent.
+                        // BUT: BEL also terminates OSC sequences (ESC ] ... BEL). Stripping 
+                        // those would leave the terminal stuck in OSC mode, breaking all ANSI output.
+                        // We check if BEL is an OSC terminator BEFORE updating state.
+                        bool bel_is_osc_terminator = (c == '\x07' && output_esc_state_ == 2);
+                        
+                        // Update lightweight escape state for next character
+                        if (c == '\x1b') {
+                            output_esc_state_ = 1;
+                        } else if (output_esc_state_ == 1) {
+                            output_esc_state_ = (c == ']') ? 2 : 0;
+                        } else if (bel_is_osc_terminator) {
+                            output_esc_state_ = 0;
+                        }
+                        
+                        bool suppress_bel = (c == '\x07' && is_remote_session_ && !bel_is_osc_terminator);
+                        
+                        if (!suppress_bel) {
+                            write(STDOUT_FILENO, &c, 1);
+                        }
                         
                         if (c == '\n') {
                             at_line_start_ = true;
@@ -510,7 +539,7 @@ namespace dais::core {
                         // ALWAYS capture to prompt_buffer_ (printable AND control chars)
                         // EXCEPTION: Don't store the newline that just cleared or reset the line.
                         // We NOW allow \r so that recover_cmd_from_buffer can handle line redrawing.
-                        if (c != '\n') { 
+                        if (c != '\n' && !suppress_bel) { 
                             std::lock_guard<std::mutex> lock(prompt_mutex_);
                             prompt_buffer_ += c;
                         }    
@@ -652,6 +681,10 @@ namespace dais::core {
                      pending_remote_deployment_ = false;
                      deploy_remote_agent();
                      deploy_remote_db_handler();
+                     // Nudge the shell to redraw its prompt.
+                     // The original prompt was discarded during suppression,
+                     // so send an empty Enter to get a fresh one.
+                     write(pty_.get_master_fd(), "\n", 1);
                 }
                 continue;
             }
@@ -1586,7 +1619,7 @@ namespace dais::core {
                 std::cout << "  Deployed: " << (remote_agent_deployed_ ? (handlers::Theme::SUCCESS + "YES (Binary)" + handlers::Theme::RESET) : (handlers::Theme::WARNING + "NO (Python Fallback)" + handlers::Theme::RESET)) << "\r\n";
                 std::cout << "  Arch: " << remote_arch_ << "\r\n";
                 if (remote_agent_deployed_) {
-                    std::cout << "  Path: ~/.dais/bin/agent_" << remote_arch_ << "\r\n";
+                    std::cout << "  Path: " << remote_bin_path_ << "\r\n";
                 }
             }
             std::cout << std::flush;
@@ -1745,8 +1778,11 @@ namespace dais::core {
 
         if (remote_agent_deployed_) {
             // A. Binary Agent (Preferred / Fast)
-            // \x15 is now handled in execute_remote_command
-            std::string agent_cmd = "~/.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_);
+            // Use the dynamically determined path from deployment
+            std::string agent_cmd = remote_bin_path_.empty() 
+                ? ("~/.dais/bin/agent_" + (remote_arch_.empty() ? "x86_64" : remote_arch_)) // Fallback (shouldn't happen if deployed true)
+                : remote_bin_path_;
+                
             agent_cmd += (ls_args.show_hidden ? " -a" : "");
             agent_cmd += paths_arg;
             
@@ -1808,9 +1844,13 @@ namespace dais::core {
                 " except:pass\n"
                 "print('DAIS_JSON_START')\n" 
                 "print(json.dumps(L, separators=(',', ':')))";
-                
-            // \x15 is now handled in execute_remote_command to ensure it precedes the space
-            std::string py_cmd = "python3 -c \"" + py_script + "\" " + paths_arg;
+                                
+            // Stealth Execution: Pipe Base64 script to python3 to avoid process list exposure
+            // echo "<B64>" | base64 -d | python3 - <args>
+            std::string py_b64 = dais::core::base64_encode(reinterpret_cast<const unsigned char*>(py_script.c_str()), py_script.size());
+            
+            // We use 'python3 -' to read script from stdin
+            std::string py_cmd = "echo \"" + py_b64 + "\" | base64 -d | python3 - " + paths_arg;
             
             // Chain: History Inject -> Python
             std::string full_cmd = history_inject + "; " + py_cmd;
@@ -1906,15 +1946,16 @@ namespace dais::core {
     }
 
     /**
-     * @brief Recovers a clean command string from the prompt buffer by simulating terminal behavior.
+     * @brief Helper to reconstruct the definitive command string from raw PTY output.
      * 
-     * Handles ANSI escape codes, cursor movements (backspace, carriage return, CSI C/D),
-     * and line clearing (CSI 1K/2K) to reconstruct what is visually present on the line.
-     * This is crucial for intercepting commands from shell history where the input
-     * comes from the shell's echo rather than user keystrokes.
+     * The PTY output contains the command echo (sometimes), control characters,
+     * backspaces, color codes, and line wraps. This function simulates a terminal
+     * to determine exactly what the user sees as the "current command line".
      * 
-     * @param buffer The raw PTY output buffer containing prompts, commands, and ANSI codes.
-     * @return A CursorRecovery struct with the command and local cursor index.
+     * Essential for robust history adoption and cursor tracking.
+     * 
+     * @param buffer Raw output from the PTY since the last prompt.
+     * @return CursorRecovery struct with the clean command string and cursor index.
      */
     Engine::CursorRecovery Engine::recover_cmd_from_buffer(const std::string& buffer) {
         // 1. Terminal Simulation (Cursor & Overwrite)

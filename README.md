@@ -43,7 +43,9 @@ Beyond the visuals, DAIS is built for performance and extensibility.
 - **Advanced Database Querying**: 
     - **Multi-Engine**: Supports **Postgres**, **MySQL**, **SQLite**, and **DuckDB**.
     - **Zero-Config**: Recursive `.env` discovery & System Environment fallback.
-    - **Auto-Install**: Interactive `(y/N)` prompt to install missing database packages via pip.
+    - **Enterprise-Safe Package Management**: Automatically creates and manages isolated **Python Virtual Environments** (`.venv`) for database drivers, ensuring no pollution of the system Python.
+    - **Project-Root Anchoring**: Intelligently anchors virtual environments to your project's `.env` location (Project Root).
+    - **Hardened Security**: Uses **Base64-encoded SQL proxying** to eliminate shell injection vulnerabilities during remote execution.
     - **Persistence**: Full DDL/DML support (Autocommit enabled) for table creation and updates.
 - **Smart `ls` Command**:
     - **Adaptive Performance**: Uses parallel processing for accelerated analysis of large directories
@@ -55,12 +57,14 @@ Beyond the visuals, DAIS is built for performance and extensibility.
     - **Flexible Usage**: Styling applies seamlessly to `ls -a` (hidden files) and `ls /absolute/path`
 - **Seamless SSH Integration**:
     - **Remote History Sync**: Internal DAIS commands (`:db`, `:ls`) executed in SSH sessions are injected into the remote shell's history.
-    - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to a universal Python script if the specialized agent cannot run.
+    - **Agent Auto-Deploy**: Automatically detects remote architecture (x86_64, ARM64, ARMv7) and deploys the correct optimized agent. Falls back to stealth in-memory execution via Python if the filesystem is read-only or specialized agents are blocked.
+    - **Input Transparency**: Employs Base64-encoded SQL proxying to eliminate shell injection and character-expansion bugs (globbing, emojis, or complex quotes) during remote execution.
 - **Compatibility**:
     - **Configurable Prompt Detection**: Automatically handles complex prompts (multi-line, colored, autosuggestions), supporting most standard prompts out-of-box, adjustable for anything else via config
     - **Shell Support**: 
         - **Bash**, **Ash**, **Zsh**: Full support including DAIS visual history navigation and command editing in ssh & locally
         - **Fish**: Native shell experience takes precedence (DAIS visual mode disabled to respect Fish's advanced autosuggestions; doesnt save DAIS commands to history)
+        - **Alpine Linux Support**: *Limited*. Agent injection works, but some interactive features (like history sync) may be restricted due to `musl` libc and `BusyBox/ash` shell constraints.
     - **Shell-Ready**: Handles special filenames (spaces, quotes, emojis) correctly
     - **Robust CI**: Verified functional cross-platform (Ubuntu, macOS, Fedora).
 - **Smart Interception**: DAIS commands only work at the shell prompt: vim, nano, and other apps run unaffected
@@ -89,7 +93,12 @@ Configure how the `ls` command displays files. Arguments can be provided in any 
  
 
 #### Database Querying (`:db`)
-Execute SQL queries directly from the terminal. DAIS auto-detects credentials from your project root.
+Execute SQL queries directly from the terminal. DAIS auto-detects credentials and **anchors them to your project root** (via `.env` discovery).
+
+**Core Reliability:**
+- **Zero-Pollution**: Installs drivers like `psycopg2` or `mysql-connector` into a private `.venv` managed by DAIS. 
+- **Auto-Retry**: If a driver is missing, DAIS offers to set up the environment and re-runs your query automatically upon success.
+- **PTY-Safe**: Handles raw terminal carriage returns and non-blocking prompts for a smooth SSH experience.
 
 **Supported Engines:**
 - **Postgres** & **MySQL** (Requires `.env` or system env vars)
