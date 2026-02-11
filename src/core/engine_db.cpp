@@ -28,7 +28,7 @@ namespace dais::core {
         if (path.empty()) return false;
         
         // Critical system path protection
-        std::vector<std::string> banned = {"/", "/home", "/root", "/boot", "/etc", "/usr", "/var", "/bin", "/sbin", "/lib", "/dev", "/proc", "/sys"};
+        std::vector<std::string> banned = {"/", "/home", "/root", "/boot", "/etc", "/usr", "/var", "/bin", "/sbin", "/lib", "/dev", "/proc", "/sys", "/media", "/mnt"};
         
         std::string p = path;
         // Trim trailing slash for comparison
@@ -257,7 +257,7 @@ namespace dais::core {
                         // Safety Check for deletion
                         std::string purge_cmd = "";
                         if (is_path_safe_for_deletion(venv_path)) {
-                            purge_cmd = "rm -rf " + venv_path + " && ";
+                            purge_cmd = "rm -rf \"" + venv_path + "\" && ";
                         }
 
                         std::string setup_cmd;
@@ -355,8 +355,10 @@ namespace dais::core {
                 if (is_remote_session_) {
                     bool has_less = check_and_offer_less_install();
                     if (has_less) {
-                        std::string polyfill = "{ " + pager_cmd + " " + file_arg + " 2>/dev/null || cat " + file_arg + "; }";
-                        cmd = polyfill + "; rm -f " + file_arg;
+                        // No '|| cat' fallback: less is confirmed installed.
+                        // Using fallback would dump the entire table if user Ctrl+Z's out of less.
+                        // Prepend ~/.dais/bin to PATH so locally-installed less is found.
+                        cmd = "export PATH=\"$HOME/.dais/bin:$PATH\"; " + pager_cmd + " " + file_arg + "; rm -f " + file_arg;
                     } else {
                         cmd = "cat " + file_arg + "; rm -f " + file_arg;
                     }
@@ -365,11 +367,20 @@ namespace dais::core {
                     cmd = polyfill + "; rm -f " + file_arg;
                 }
                 
-                // === REMOTE INJECTION ===
-                // 1. Clear the line with ANSI (hides echo of cat command)
-                // 2. Run the pager command
-                std::string wrapped_cmd = "printf '\\033[A\\033[2K'; " + cmd;
-                std::string full_inject = "\x15 " + wrapped_cmd + "\n";
+                // === CLEAN PAGER INJECTION ===
+                // Phase 1: Suppress terminal echo (hides command text from user)
+                {
+                    ScopedSuppression suppression(suppress_output_);
+                    std::string echo_off = "\x15 set +o history 2>/dev/null; stty -echo; set -o history 2>/dev/null\n";
+                    write(pty_.get_master_fd(), echo_off.c_str(), echo_off.size());
+                    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                }
+
+                // Phase 2: Inject pager command (no echo, no history, clean restore)
+                // IMPORTANT: 'stty echo' is placed at the START so terminal is restored before
+                // the pager takes over. If the user Ctrl+Z's out of less, the terminal remains
+                // usable because echo was already re-enabled.
+                std::string full_inject = "\x15 set +o history 2>/dev/null; stty echo; " + cmd + "; set -o history 2>/dev/null\n";
                 write(pty_.get_master_fd(), full_inject.c_str(), full_inject.size());
             }
             
@@ -483,8 +494,69 @@ namespace dais::core {
             return true;
         }
 
-        std::cout << "\r\n[" << handlers::Theme::LOGO << "DB" << handlers::Theme::RESET 
-                  << "] 'less' pager not found. Using raw output. Install 'less' for pagination.\r\n" << std::flush;
+        // Offer to install less (following the same pattern as missing Python packages)
+        std::cout << "\r\n" << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "Missing Tool" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET 
+                  << " '" << handlers::Theme::VALUE << "less" << handlers::Theme::RESET << "' pager not found. Install for table pagination?\r\n"
+                  << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "Note" << handlers::Theme::STRUCTURE << "]" << handlers::Theme::RESET << " May require sudo/root privileges.\r\n"
+                  << "Proceed? (y/N) " << std::flush;
+        
+        char c = 0;
+        struct pollfd fds[1];
+        fds[0].fd = STDIN_FILENO;
+        fds[0].events = POLLIN;
+
+        // Non-blocking wait with poll (max 15s timeout)
+        int ret = poll(fds, 1, 15000); 
+        if (ret > 0 && (fds[0].revents & POLLIN)) {
+            read(STDIN_FILENO, &c, 1);
+        } else if (ret == 0) {
+            std::cout << " (Timeout)\r\n";
+            less_available_ = false;
+            return false;
+        }
+
+        if (c == 'y' || c == 'Y') {
+            std::cout << "Y\r\n";
+            tcflush(STDIN_FILENO, TCIFLUSH);
+
+            // Cross-distro installation logic (tries without sudo first, escalates only if needed)
+            // CRITICAL: Use 'sudo -n' (non-interactive) — if a password is required, sudo exits
+            // immediately instead of prompting. A hanging sudo prompt would hijack the PTY
+            // and corrupt all subsequent commands.
+            std::string install_cmd = 
+                "( apt-get install -y less 2>/dev/null "
+                "|| yum install -y less 2>/dev/null "
+                "|| apk add less 2>/dev/null "
+                "|| sudo -n apt-get install -y less 2>/dev/null "
+                "|| sudo -n yum install -y less 2>/dev/null "
+                // User-space fallback: download .deb and extract binary to ~/.dais/bin/ (no root)
+                "|| ( mkdir -p ~/.dais/bin && cd /tmp && apt-get download less 2>/dev/null "
+                "&& dpkg-deb -x less_*.deb /tmp/.dais_less_extract 2>/dev/null "
+                "&& cp /tmp/.dais_less_extract/usr/bin/less ~/.dais/bin/less "
+                "&& chmod +x ~/.dais/bin/less "
+                "&& rm -rf /tmp/.dais_less_extract /tmp/less_*.deb ) 2>/dev/null "
+                ") && ( command -v less >/dev/null 2>&1 || test -x ~/.dais/bin/less ) && echo LESS_INSTALLED";
+
+            std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::NOTICE << "Installing" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                      << "Attempting to install 'less'...\r\n" << std::flush;
+
+            std::string result = execute_remote_command(install_cmd, 30000);
+            
+            if (result.find("LESS_INSTALLED") != std::string::npos) {
+                std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::SUCCESS << "Success" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                          << "'less' installed successfully.\r\n" << std::flush;
+                less_available_ = true;
+                return true;
+            } else {
+                std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "Failed" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
+                          << "Could not install 'less'. Using raw output.\r\n"
+                          << handlers::Theme::STRUCTURE << "[" << handlers::Theme::WARNING << "Tip" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET << "Try manually: sudo apt install less\r\n" << std::flush;
+                // Brief pause so the user can read the message before table output floods the screen
+                std::this_thread::sleep_for(std::chrono::seconds(2));
+            }
+        } else {
+            std::cout << "N\r\n";
+        }
         
         less_available_ = false;
         return false;
