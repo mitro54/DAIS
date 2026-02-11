@@ -391,7 +391,11 @@ namespace dais::core {
                 // we consume the output into a buffer and DO NOT print it.
                 if (capture_mode_) {
                     std::lock_guard<std::mutex> lock(capture_mutex_);
-                    capture_buffer_.append(buffer.data(), bytes_read);
+                    if (capture_buffer_.size() + bytes_read <= MAX_CAPTURE_SIZE) {
+                        capture_buffer_.append(buffer.data(), bytes_read);
+                    } else if (!capture_overflow_) {
+                        capture_overflow_ = true;
+                    }
                     capture_cv_.notify_one();
                     continue; // Skip printing
                 }

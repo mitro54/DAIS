@@ -27,18 +27,27 @@ namespace dais::core {
     static bool is_path_safe_for_deletion(const std::string& path) {
         if (path.empty()) return false;
         
+        // Resolve to canonical form to defeat ../ and symlink tricks
+        std::string p;
+        try {
+            // Use weakly_canonical to handle paths that might not exist yet
+            p = std::filesystem::weakly_canonical(path).string();
+        } catch (...) {
+            return false; // If we can't resolve it, refuse to delete
+        }
+        
         // Critical system path protection
         std::vector<std::string> banned = {"/", "/home", "/root", "/boot", "/etc", "/usr", "/var", "/bin", "/sbin", "/lib", "/dev", "/proc", "/sys", "/media", "/mnt"};
         
-        std::string p = path;
         // Trim trailing slash for comparison
         while (p.size() > 1 && p.back() == '/') p.pop_back();
         
         if (std::find(banned.begin(), banned.end(), p) != banned.end()) return false;
         
         // Safety requirement: MUST be a virtual environment directory (strict check)
-        bool is_venv = (p == ".venv") || 
-                       (p.length() >= 6 && p.substr(p.length() - 6) == "/.venv");
+        // Check against the RESOLVED path to prevent ../ attacks
+        std::string basename = std::filesystem::path(p).filename().string();
+        bool is_venv = (basename == ".venv");
         
         if (!is_venv) return false;
         
@@ -487,7 +496,7 @@ namespace dais::core {
         }
         less_checked_ = true;
 
-        std::string check_result = execute_remote_command("command -v less >/dev/null 2>&1 && echo LESS_OK || echo LESS_MISSING", 2000);
+        std::string check_result = execute_remote_command("( command -v less >/dev/null 2>&1 || test -x ~/.dais/bin/less ) && echo LESS_OK || echo LESS_MISSING", 2000);
         
         if (check_result.find("LESS_OK") != std::string::npos) {
             less_available_ = true;
@@ -530,11 +539,11 @@ namespace dais::core {
                 "|| sudo -n apt-get install -y less 2>/dev/null "
                 "|| sudo -n yum install -y less 2>/dev/null "
                 // User-space fallback: download .deb and extract binary to ~/.dais/bin/ (no root)
-                "|| ( mkdir -p ~/.dais/bin && cd /tmp && apt-get download less 2>/dev/null "
-                "&& dpkg-deb -x less_*.deb /tmp/.dais_less_extract 2>/dev/null "
-                "&& cp /tmp/.dais_less_extract/usr/bin/less ~/.dais/bin/less "
+                "|| ( _DAIS_TMP=$(mktemp -d) && mkdir -p ~/.dais/bin && cd \"$_DAIS_TMP\" && apt-get download less 2>/dev/null "
+                "&& dpkg-deb -x \"$_DAIS_TMP\"/less_*.deb \"$_DAIS_TMP/extract\" 2>/dev/null "
+                "&& cp \"$_DAIS_TMP/extract/usr/bin/less\" ~/.dais/bin/less "
                 "&& chmod +x ~/.dais/bin/less "
-                "&& rm -rf /tmp/.dais_less_extract /tmp/less_*.deb ) 2>/dev/null "
+                "&& rm -rf \"$_DAIS_TMP\" ) 2>/dev/null "
                 ") && ( command -v less >/dev/null 2>&1 || test -x ~/.dais/bin/less ) && echo LESS_INSTALLED";
 
             std::cout << handlers::Theme::STRUCTURE << "[" << handlers::Theme::NOTICE << "Installing" << handlers::Theme::STRUCTURE << "] " << handlers::Theme::RESET 
