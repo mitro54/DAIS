@@ -1102,22 +1102,23 @@ namespace dais::core {
                                     // Parse arguments roughly (only -a supported for now)
                                     auto ls_args = handlers::parse_ls_args(cmd_accumulator);
                                     
-                                    // Construct Remote Command
+                                    // Construct Remote Command (shell-safe escaping)
                                     std::string agent_cmd;
                                     
                                     // agent args: [-a] [path]
                                     if (ls_args.show_hidden) agent_cmd += " -a";
                                     for (const auto& p : ls_args.paths) {
-                                        if (!p.empty()) agent_cmd += " " + p;
+                                        if (!p.empty()) {
+                                            // POSIX single-quote escaping for safe shell transmission
+                                            std::string escaped = "'";
+                                            for (char c : p) {
+                                                if (c == '\'') escaped += "'\\''";
+                                                else escaped += c;
+                                            }
+                                            escaped += "'";
+                                            agent_cmd += " " + escaped;
+                                        }
                                     }
-                                    
-                                    // Execute the agent (or python fallback if we had it)
-                                    // Note: The agent binary is usually placed at ~/.dais/agent 
-                                    // But for this MVP we might assume it's in the PATH or /tmp.
-                                    // Implementation Detail: deploy_remote_agent() should detect where it put it.
-                                    // For now, let's assume valid PATH or alias.
-                                    // Actually, let's run a Mock command if mock agent.
-                                    // Or try to run the dropped binary.
                                     
                                     // ACTIVE INTERCEPTION LOGIC:
                                     if (remote_agent_deployed_) {
@@ -1758,10 +1759,20 @@ namespace dais::core {
         
         std::string json_out;
         
-        // 3. Prepare Arguments
+        // 3. Prepare Arguments (shell-safe escaping)
+        // Uses POSIX single-quote escaping: wrap in '...' and escape
+        // internal single quotes as '\'' (end quote, escaped quote, reopen quote).
         std::string paths_arg;
         for(const auto& p : ls_args.paths) {
-            if(!p.empty()) paths_arg += " \"" + p + "\""; // Add quotes for paths with spaces
+            if(!p.empty()) {
+                std::string escaped = "'";
+                for (char c : p) {
+                    if (c == '\'') escaped += "'\\''";
+                    else escaped += c;
+                }
+                escaped += "'";
+                paths_arg += " " + escaped;
+            }
         }
         if (paths_arg.empty()) paths_arg = " .";
 

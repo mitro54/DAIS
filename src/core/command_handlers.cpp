@@ -249,18 +249,62 @@ namespace dais::core::handlers {
     // ARGUMENT PARSING
     // ==================================================================================
 
+    /**
+     * @brief Parses ls arguments with quote-aware tokenization.
+     * 
+     * Handles single-quoted ('...'), double-quoted ("..."), and
+     * backslash-escaped spaces (\ ) so that paths containing spaces
+     * are parsed as a single argument rather than being split.
+     */
     LSArgs parse_ls_args(const std::string& input) {
         LSArgs args;
-        std::istringstream iss(input);
-        std::string token;
-        iss >> token; // skip "ls"
         
-        while (iss >> token) {
+        // Skip leading "ls" command name
+        size_t pos = 0;
+        while (pos < input.size() && input[pos] == ' ') pos++;
+        // Skip "ls"
+        if (pos + 2 <= input.size() && input.substr(pos, 2) == "ls") {
+            pos += 2;
+        }
+        
+        // Tokenize remaining input respecting quotes and backslash escapes
+        while (pos < input.size()) {
+            // Skip whitespace between tokens
+            while (pos < input.size() && input[pos] == ' ') pos++;
+            if (pos >= input.size()) break;
+            
+            std::string token;
+            char quote_char = 0;
+            
+            // Check if token starts with a quote
+            if (input[pos] == '"' || input[pos] == '\'') {
+                quote_char = input[pos];
+                pos++; // Skip opening quote
+                while (pos < input.size() && input[pos] != quote_char) {
+                    token += input[pos];
+                    pos++;
+                }
+                if (pos < input.size()) pos++; // Skip closing quote
+            } else {
+                // Unquoted token: read until space, handling backslash-escaped spaces
+                while (pos < input.size() && input[pos] != ' ') {
+                    if (input[pos] == '\\' && pos + 1 < input.size() && input[pos + 1] == ' ') {
+                        token += ' ';
+                        pos += 2; // Skip backslash and space
+                    } else {
+                        token += input[pos];
+                        pos++;
+                    }
+                }
+            }
+            
+            if (token.empty()) continue;
+            
             if (token == "-a" || token == "--all") {
                 args.show_hidden = true;
             } else if (token.starts_with("-")) {
-                args.supported = false; // Unknown flag
-                return args; 
+                args.supported = false; // Unknown flag - fall through to native ls
+                return args;
             } else {
                 args.paths.push_back(token);
             }
