@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-11 12:27:23</td>
+            <td class="headerValue">2026-02-11 13:48:21</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
@@ -277,7 +277,7 @@
 <span id="L199"><span class="lineNum">     199</span>                 :             :         // Singleton thread pool for parallel file analysis (used by ls handler)</span>
 <span id="L200"><span class="lineNum">     200</span>                 :             :         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)</span>
 <span id="L201"><span class="lineNum">     201</span>                 :             :         // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs</span>
-<span id="L202"><span class="lineNum">     202</span>                 :<span class="tlaGNC tlaBgGNC">          16 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
+<span id="L202"><span class="lineNum">     202</span>                 :<span class="tlaGNC tlaBgGNC">          15 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
 <span id="L203"><span class="lineNum">     203</span>                 :             : </span>
 <span id="L204"><span class="lineNum">     204</span>                 :             :         // python state</span>
 <span id="L205"><span class="lineNum">     205</span>                 :             :         py::scoped_interpreter guard{};        ///&lt; Scoped interpreter initializes/finalizes Python</span>
@@ -402,46 +402,48 @@
 <span id="L324"><span class="lineNum">     324</span>                 :<span class="tlaUNC tlaBgUNC">           0 :             ScopedSuppression(std::atomic&lt;bool&gt;&amp; f) : flag(f) { flag = true; }</span></span>
 <span id="L325"><span class="lineNum">     325</span>                 :<span class="tlaUNC">           0 :             ~ScopedSuppression() { flag = false; }</span></span>
 <span id="L326"><span class="lineNum">     326</span>                 :             :         };</span>
-<span id="L327"><span class="lineNum">     327</span>                 :             :         std::string capture_buffer_;</span>
-<span id="L328"><span class="lineNum">     328</span>                 :             :         std::mutex capture_mutex_;</span>
-<span id="L329"><span class="lineNum">     329</span>                 :             :         std::condition_variable capture_cv_;</span>
-<span id="L330"><span class="lineNum">     330</span>                 :             :         </span>
-<span id="L331"><span class="lineNum">     331</span>                 :             :         // --- AUTO-DEPLOYMENT STATE ---</span>
-<span id="L332"><span class="lineNum">     332</span>                 :             :         std::atomic&lt;bool&gt; pending_remote_deployment_{false};</span>
-<span id="L333"><span class="lineNum">     333</span>                 :             :         std::atomic&lt;bool&gt; ready_to_deploy_{false};</span>
-<span id="L334"><span class="lineNum">     334</span>                 :             :         std::atomic&lt;bool&gt; in_alt_screen_{false};</span>
-<span id="L335"><span class="lineNum">     335</span>                 :             :         std::atomic&lt;int&gt; cached_prompt_width_{-1};    ///&lt; Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers</span>
-<span id="L336"><span class="lineNum">     336</span>                 :             :         bool intentionally_cleared_{false};           ///&lt; Prevents &quot;ghost&quot; history adoption when user explicitly clears the line</span>
-<span id="L337"><span class="lineNum">     337</span>                 :             :         std::string last_remote_prompt_;              ///&lt; Stores the prompt swallowed by execute_remote_command for later restoration</span>
-<span id="L338"><span class="lineNum">     338</span>                 :             :         </span>
-<span id="L339"><span class="lineNum">     339</span>                 :             :         /**</span>
-<span id="L340"><span class="lineNum">     340</span>                 :             :          * @brief Executes a command on the remote shell and captures output.</span>
-<span id="L341"><span class="lineNum">     341</span>                 :             :          * Blocks until the end sentinel is found or timeout.</span>
-<span id="L342"><span class="lineNum">     342</span>                 :             :          */</span>
-<span id="L343"><span class="lineNum">     343</span>                 :             :         std::string execute_remote_command(const std::string&amp; cmd, int timeout_ms = 2000);</span>
-<span id="L344"><span class="lineNum">     344</span>                 :             :         </span>
-<span id="L345"><span class="lineNum">     345</span>                 :             :         /**</span>
-<span id="L346"><span class="lineNum">     346</span>                 :             :          * @brief Handles the complex logic of intercepting and executing 'ls' on a remote host.</span>
-<span id="L347"><span class="lineNum">     347</span>                 :             :          * Incorporates agent deployment, fallback to Python, and output rendering.</span>
-<span id="L348"><span class="lineNum">     348</span>                 :             :          */</span>
-<span id="L349"><span class="lineNum">     349</span>                 :             :         void handle_remote_ls(const handlers::LSArgs&amp; ls_args, const std::string&amp; original_cmd);</span>
-<span id="L350"><span class="lineNum">     350</span>                 :             :         </span>
-<span id="L351"><span class="lineNum">     351</span>                 :             :         bool remote_db_deployed_ = false;       ///&lt; True if db_handler.py is on remote</span>
-<span id="L352"><span class="lineNum">     352</span>                 :             :         void deploy_remote_db_handler();       ///&lt; Injects python script if missing</span>
-<span id="L353"><span class="lineNum">     353</span>                 :             :         </span>
-<span id="L354"><span class="lineNum">     354</span>                 :             :         // =====================================================================</span>
-<span id="L355"><span class="lineNum">     355</span>                 :             :         // LESS PAGER AVAILABILITY (For Remote Sessions)</span>
+<span id="L327"><span class="lineNum">     327</span>                 :             :         static constexpr size_t MAX_CAPTURE_SIZE = 64 * 1024 * 1024; // 64 MB hard cap</span>
+<span id="L328"><span class="lineNum">     328</span>                 :             :         std::string capture_buffer_;</span>
+<span id="L329"><span class="lineNum">     329</span>                 :             :         bool capture_overflow_ = false;  ///&lt; True if capture was truncated due to size</span>
+<span id="L330"><span class="lineNum">     330</span>                 :             :         std::mutex capture_mutex_;</span>
+<span id="L331"><span class="lineNum">     331</span>                 :             :         std::condition_variable capture_cv_;</span>
+<span id="L332"><span class="lineNum">     332</span>                 :             :         </span>
+<span id="L333"><span class="lineNum">     333</span>                 :             :         // --- AUTO-DEPLOYMENT STATE ---</span>
+<span id="L334"><span class="lineNum">     334</span>                 :             :         std::atomic&lt;bool&gt; pending_remote_deployment_{false};</span>
+<span id="L335"><span class="lineNum">     335</span>                 :             :         std::atomic&lt;bool&gt; ready_to_deploy_{false};</span>
+<span id="L336"><span class="lineNum">     336</span>                 :             :         std::atomic&lt;bool&gt; in_alt_screen_{false};</span>
+<span id="L337"><span class="lineNum">     337</span>                 :             :         std::atomic&lt;int&gt; cached_prompt_width_{-1};    ///&lt; Clean prompt width captured at IDLE to prevent cursor jumps from dirty buffers</span>
+<span id="L338"><span class="lineNum">     338</span>                 :             :         bool intentionally_cleared_{false};           ///&lt; Prevents &quot;ghost&quot; history adoption when user explicitly clears the line</span>
+<span id="L339"><span class="lineNum">     339</span>                 :             :         std::string last_remote_prompt_;              ///&lt; Stores the prompt swallowed by execute_remote_command for later restoration</span>
+<span id="L340"><span class="lineNum">     340</span>                 :             :         </span>
+<span id="L341"><span class="lineNum">     341</span>                 :             :         /**</span>
+<span id="L342"><span class="lineNum">     342</span>                 :             :          * @brief Executes a command on the remote shell and captures output.</span>
+<span id="L343"><span class="lineNum">     343</span>                 :             :          * Blocks until the end sentinel is found or timeout.</span>
+<span id="L344"><span class="lineNum">     344</span>                 :             :          */</span>
+<span id="L345"><span class="lineNum">     345</span>                 :             :         std::string execute_remote_command(const std::string&amp; cmd, int timeout_ms = 2000);</span>
+<span id="L346"><span class="lineNum">     346</span>                 :             :         </span>
+<span id="L347"><span class="lineNum">     347</span>                 :             :         /**</span>
+<span id="L348"><span class="lineNum">     348</span>                 :             :          * @brief Handles the complex logic of intercepting and executing 'ls' on a remote host.</span>
+<span id="L349"><span class="lineNum">     349</span>                 :             :          * Incorporates agent deployment, fallback to Python, and output rendering.</span>
+<span id="L350"><span class="lineNum">     350</span>                 :             :          */</span>
+<span id="L351"><span class="lineNum">     351</span>                 :             :         void handle_remote_ls(const handlers::LSArgs&amp; ls_args, const std::string&amp; original_cmd);</span>
+<span id="L352"><span class="lineNum">     352</span>                 :             :         </span>
+<span id="L353"><span class="lineNum">     353</span>                 :             :         bool remote_db_deployed_ = false;       ///&lt; True if db_handler.py is on remote</span>
+<span id="L354"><span class="lineNum">     354</span>                 :             :         void deploy_remote_db_handler();       ///&lt; Injects python script if missing</span>
+<span id="L355"><span class="lineNum">     355</span>                 :             :         </span>
 <span id="L356"><span class="lineNum">     356</span>                 :             :         // =====================================================================</span>
-<span id="L357"><span class="lineNum">     357</span>                 :             :         bool less_checked_ = false;             ///&lt; True if we've checked for less</span>
-<span id="L358"><span class="lineNum">     358</span>                 :             :         bool less_available_ = true;            ///&lt; True if less is available (default optimistic)</span>
-<span id="L359"><span class="lineNum">     359</span>                 :             :         </span>
-<span id="L360"><span class="lineNum">     360</span>                 :             :         /**</span>
-<span id="L361"><span class="lineNum">     361</span>                 :             :          * @brief Checks if 'less' is available on remote and offers to install if not.</span>
-<span id="L362"><span class="lineNum">     362</span>                 :             :          * @return True if less is available (or was installed), false to use cat fallback.</span>
-<span id="L363"><span class="lineNum">     363</span>                 :             :          */</span>
-<span id="L364"><span class="lineNum">     364</span>                 :             :         bool check_and_offer_less_install();</span>
-<span id="L365"><span class="lineNum">     365</span>                 :             :     };</span>
-<span id="L366"><span class="lineNum">     366</span>                 :             : }</span>
+<span id="L357"><span class="lineNum">     357</span>                 :             :         // LESS PAGER AVAILABILITY (For Remote Sessions)</span>
+<span id="L358"><span class="lineNum">     358</span>                 :             :         // =====================================================================</span>
+<span id="L359"><span class="lineNum">     359</span>                 :             :         bool less_checked_ = false;             ///&lt; True if we've checked for less</span>
+<span id="L360"><span class="lineNum">     360</span>                 :             :         bool less_available_ = true;            ///&lt; True if less is available (default optimistic)</span>
+<span id="L361"><span class="lineNum">     361</span>                 :             :         </span>
+<span id="L362"><span class="lineNum">     362</span>                 :             :         /**</span>
+<span id="L363"><span class="lineNum">     363</span>                 :             :          * @brief Checks if 'less' is available on remote and offers to install if not.</span>
+<span id="L364"><span class="lineNum">     364</span>                 :             :          * @return True if less is available (or was installed), false to use cat fallback.</span>
+<span id="L365"><span class="lineNum">     365</span>                 :             :          */</span>
+<span id="L366"><span class="lineNum">     366</span>                 :             :         bool check_and_offer_less_install();</span>
+<span id="L367"><span class="lineNum">     367</span>                 :             :     };</span>
+<span id="L368"><span class="lineNum">     368</span>                 :             : }</span>
         </pre>
               </td>
             </tr>
