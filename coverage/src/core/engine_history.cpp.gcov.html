@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-10 02:35:41</td>
+            <td class="headerValue">2026-02-11 00:48:57</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryMed">80.0&nbsp;%</td>
@@ -296,11 +296,11 @@
 <span id="L210"><span class="lineNum">     210</span>                 :             :      * @param accumulator The command string currently visible to the user.</span>
 <span id="L211"><span class="lineNum">     211</span>                 :             :      * @return true if synchronization occurred.</span>
 <span id="L212"><span class="lineNum">     212</span>                 :             :      */</span>
-<span id="L213"><span class="lineNum">     213</span>                 :<span class="tlaGNC tlaBgGNC">         574 :     bool Engine::sync_history_to_shell(std::string&amp; accumulator) {</span></span>
-<span id="L214"><span class="lineNum">     214</span>   [<span class="tlaGBC" title="Branch 0 was taken 218 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 356 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaGBC" title="Branch 3 was taken 218 times"> + </span> :<span class="tlaGNC">         574 :         if ((synced_with_shell_ &amp;&amp; !history_navigated_) || accumulator.empty() || accumulator.starts_with(&quot;:&quot;)) {</span></span>
-<span class="lineNum">        </span> <span class="tlaGBC" title="Branch 4 was taken 336 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 20 times"> + </span><span class="tlaGBC" title="Branch 6 was taken 335 times"> + </span><span class="tlaGBC" title="Branch 7 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 8 was taken 573 times"> + </span> 
+<span id="L213"><span class="lineNum">     213</span>                 :<span class="tlaGNC tlaBgGNC">         573 :     bool Engine::sync_history_to_shell(std::string&amp; accumulator) {</span></span>
+<span id="L214"><span class="lineNum">     214</span>   [<span class="tlaGBC" title="Branch 0 was taken 218 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 355 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaGBC" title="Branch 3 was taken 218 times"> + </span> :<span class="tlaGNC">         573 :         if ((synced_with_shell_ &amp;&amp; !history_navigated_) || accumulator.empty() || accumulator.starts_with(&quot;:&quot;)) {</span></span>
+<span class="lineNum">        </span> <span class="tlaGBC" title="Branch 4 was taken 336 times"> + </span><span class="tlaGBC" title="Branch 5 was taken 19 times"> + </span><span class="tlaGBC" title="Branch 6 was taken 335 times"> + </span><span class="tlaGBC" title="Branch 7 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 8 was taken 572 times"> + </span> 
 <span class="lineNum">        </span>             <span class="tlaGBC" title="Branch 9 was taken 1 time"> + </span>]
-<span id="L215"><span class="lineNum">     215</span>                 :<span class="tlaGNC">         573 :             return false;</span></span>
+<span id="L215"><span class="lineNum">     215</span>                 :<span class="tlaGNC">         572 :             return false;</span></span>
 <span id="L216"><span class="lineNum">     216</span>                 :             :         }</span>
 <span id="L217"><span class="lineNum">     217</span>                 :             :         </span>
 <span id="L218"><span class="lineNum">     218</span>                 :             :         // Only require shell idle for local sessions (where it's reliable)</span>
