@@ -37,7 +37,7 @@
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-11 00:48:57</td>
+            <td class="headerValue">2026-02-11 12:18:36</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryLo">0.0&nbsp;%</td>
@@ -277,7 +277,7 @@
 <span id="L199"><span class="lineNum">     199</span>                 :             :         // Singleton thread pool for parallel file analysis (used by ls handler)</span>
 <span id="L200"><span class="lineNum">     200</span>                 :             :         // Uses more threads than CPU cores because file analysis is I/O-bound (threads wait for disk)</span>
 <span id="L201"><span class="lineNum">     201</span>                 :             :         // Rule: max(hardware_concurrency * 4, 128) gives maximum parallelism for high-speed SSDs</span>
-<span id="L202"><span class="lineNum">     202</span>                 :<span class="tlaGNC tlaBgGNC">          16 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
+<span id="L202"><span class="lineNum">     202</span>                 :<span class="tlaGNC tlaBgGNC">          15 :         utils::ThreadPool thread_pool_{std::max(std::thread::hardware_concurrency() * 4, 128u)};</span></span>
 <span id="L203"><span class="lineNum">     203</span>                 :             : </span>
 <span id="L204"><span class="lineNum">     204</span>                 :             :         // python state</span>
 <span id="L205"><span class="lineNum">     205</span>                 :             :         py::scoped_interpreter guard{};        ///&lt; Scoped interpreter initializes/finalizes Python</span>
