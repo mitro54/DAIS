@@ -940,7 +940,6 @@ namespace dais::core {
                             }
                             was_visual_mode_ = false;
                             logo_injected_this_prompt_ = false; 
-                            // NOTE: prompt_buffer_ clear moved below recovery logic
                             
                         
                         // ═══════════════════════════════════════════════════════════════════════════
@@ -1102,22 +1101,23 @@ namespace dais::core {
                                     // Parse arguments roughly (only -a supported for now)
                                     auto ls_args = handlers::parse_ls_args(cmd_accumulator);
                                     
-                                    // Construct Remote Command
+                                    // Construct Remote Command (shell-safe escaping)
                                     std::string agent_cmd;
                                     
                                     // agent args: [-a] [path]
                                     if (ls_args.show_hidden) agent_cmd += " -a";
                                     for (const auto& p : ls_args.paths) {
-                                        if (!p.empty()) agent_cmd += " " + p;
+                                        if (!p.empty()) {
+                                            // POSIX single-quote escaping for safe shell transmission
+                                            std::string escaped = "'";
+                                            for (char c : p) {
+                                                if (c == '\'') escaped += "'\\''";
+                                                else escaped += c;
+                                            }
+                                            escaped += "'";
+                                            agent_cmd += " " + escaped;
+                                        }
                                     }
-                                    
-                                    // Execute the agent (or python fallback if we had it)
-                                    // Note: The agent binary is usually placed at ~/.dais/agent 
-                                    // But for this MVP we might assume it's in the PATH or /tmp.
-                                    // Implementation Detail: deploy_remote_agent() should detect where it put it.
-                                    // For now, let's assume valid PATH or alias.
-                                    // Actually, let's run a Mock command if mock agent.
-                                    // Or try to run the dropped binary.
                                     
                                     // ACTIVE INTERCEPTION LOGIC:
                                     if (remote_agent_deployed_) {
@@ -1758,10 +1758,20 @@ namespace dais::core {
         
         std::string json_out;
         
-        // 3. Prepare Arguments
+        // 3. Prepare Arguments (shell-safe escaping)
+        // Uses POSIX single-quote escaping: wrap in '...' and escape
+        // internal single quotes as '\'' (end quote, escaped quote, reopen quote).
         std::string paths_arg;
         for(const auto& p : ls_args.paths) {
-            if(!p.empty()) paths_arg += " \"" + p + "\""; // Add quotes for paths with spaces
+            if(!p.empty()) {
+                std::string escaped = "'";
+                for (char c : p) {
+                    if (c == '\'') escaped += "'\\''";
+                    else escaped += c;
+                }
+                escaped += "'";
+                paths_arg += " " + escaped;
+            }
         }
         if (paths_arg.empty()) paths_arg = " .";
 
@@ -1886,9 +1896,6 @@ namespace dais::core {
                 }
             }
         }
-        
-        // 6. Fallback Behavior
-        // ... handled below ...
         
         // 7. Render
         if (valid_json) {
@@ -2139,15 +2146,6 @@ namespace dais::core {
         return {"", 0};
     }
 
-    // Remote logic moved to src/core/engine_remote.cpp
-    
-    /**
-     * @brief Loads command history from ~/.dais_history on startup.
-     */
-    // History logic moved to src/core/engine_history.cpp
-
-    // DB logic moved to src/core/engine_db.cpp
-
     /**
      * @brief Calculates the visual width of a string by stripping ANSI escape codes.
      */
@@ -2194,13 +2192,6 @@ namespace dais::core {
                 // resets the 'valid' width if it follows a CR. 
                 // However, more commonly, \r + \x1b[K means "start over".
                 if (c == 'K') {
-                   // If we just had a CR (length 0), then K confirms the line is empty.
-                   // If we had text, K clears it? No, K clears *after* cursor.
-                   // But \x1b[2K clears everything.
-                   // Since we don't parse the parameter (n), let's assume worst case for safety or just ignore?
-                   // BETTER: If we detect [2K, reset length. 
-                   // But we aren't parsing numbers here. 
-                   // Let's at least handle the state transition.
                    state = 0;
                 }
                 else if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
