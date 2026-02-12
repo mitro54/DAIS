@@ -940,7 +940,6 @@ namespace dais::core {
                             }
                             was_visual_mode_ = false;
                             logo_injected_this_prompt_ = false; 
-                            // NOTE: prompt_buffer_ clear moved below recovery logic
                             
                         
                         // ═══════════════════════════════════════════════════════════════════════════
@@ -1898,9 +1897,6 @@ namespace dais::core {
             }
         }
         
-        // 6. Fallback Behavior
-        // ... handled below ...
-        
         // 7. Render
         if (valid_json) {
             try {
@@ -2150,15 +2146,6 @@ namespace dais::core {
         return {"", 0};
     }
 
-    // Remote logic moved to src/core/engine_remote.cpp
-    
-    /**
-     * @brief Loads command history from ~/.dais_history on startup.
-     */
-    // History logic moved to src/core/engine_history.cpp
-
-    // DB logic moved to src/core/engine_db.cpp
-
     /**
      * @brief Calculates the visual width of a string by stripping ANSI escape codes.
      */
@@ -2205,13 +2192,6 @@ namespace dais::core {
                 // resets the 'valid' width if it follows a CR. 
                 // However, more commonly, \r + \x1b[K means "start over".
                 if (c == 'K') {
-                   // If we just had a CR (length 0), then K confirms the line is empty.
-                   // If we had text, K clears it? No, K clears *after* cursor.
-                   // But \x1b[2K clears everything.
-                   // Since we don't parse the parameter (n), let's assume worst case for safety or just ignore?
-                   // BETTER: If we detect [2K, reset length. 
-                   // But we aren't parsing numbers here. 
-                   // Let's at least handle the state transition.
                    state = 0;
                 }
                 else if (c >= 0x40 && c <= 0x7E) state = 0; // Terminator
