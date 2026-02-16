@@ -31,13 +31,13 @@
             <td class="headerValue">DAIS Code Coverage</td>
             <td></td>
             <td class="headerItem">Lines:</td>
-            <td class="headerCovTableEntryMed">80.3&nbsp;%</td>
+            <td class="headerCovTableEntryMed">82.0&nbsp;%</td>
             <td class="headerCovTableEntry">61</td>
-            <td class="headerCovTableEntry">49</td>
+            <td class="headerCovTableEntry">50</td>
           </tr>
           <tr>
             <td class="headerItem">Test Date:</td>
-            <td class="headerValue">2026-02-12 22:01:26</td>
+            <td class="headerValue">2026-02-16 20:27:51</td>
             <td></td>
             <td class="headerItem">Functions:</td>
             <td class="headerCovTableEntryHi">100.0&nbsp;%</td>
@@ -56,9 +56,9 @@
 </td>
             <td></td>
             <td class="headerItem">Branches:</td>
-            <td class="headerCovTableEntryLo">47.5&nbsp;%</td>
+            <td class="headerCovTableEntryLo">57.5&nbsp;%</td>
             <td class="headerCovTableEntry">40</td>
-            <td class="headerCovTableEntry">19</td>
+            <td class="headerCovTableEntry">23</td>
           </tr>
                   <tr><td><img src="../../glass.png" width=3 height=3 alt=""></td></tr>
                 </table>
@@ -234,12 +234,12 @@
 <span id="L156"><span class="lineNum">     156</span>                 :<span class="tlaGNC">          16 :         tcsetattr(STDIN_FILENO, TCSANOW, &amp;orig_term_);</span></span>
 <span id="L157"><span class="lineNum">     157</span>                 :<span class="tlaGNC">          16 :     }</span></span>
 <span id="L158"><span class="lineNum">     158</span>                 :             : </span>
-<span id="L159"><span class="lineNum">     159</span>                 :<span class="tlaGNC">         117 :     std::string PTYSession::get_foreground_process_name() {</span></span>
-<span id="L160"><span class="lineNum">     160</span>                 :<span class="tlaGNC">         117 :         pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
-<span id="L161"><span class="lineNum">     161</span>   [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">         117 :         if (fg_pgrp &lt; 0) return &quot;&quot;;</span></span>
+<span id="L159"><span class="lineNum">     159</span>                 :<span class="tlaGNC">         118 :     std::string PTYSession::get_foreground_process_name() {</span></span>
+<span id="L160"><span class="lineNum">     160</span>                 :<span class="tlaGNC">         118 :         pid_t fg_pgrp = tcgetpgrp(master_fd_);</span></span>
+<span id="L161"><span class="lineNum">     161</span>   [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">         118 :         if (fg_pgrp &lt; 0) return &quot;&quot;;</span></span>
 <span id="L162"><span class="lineNum">     162</span>                 :             : </span>
 <span id="L163"><span class="lineNum">     163</span>                 :             :         // In most shells, the PGID of the foreground job is the PID of the leader process</span>
-<span id="L164"><span class="lineNum">     164</span>                 :<span class="tlaGNC">         117 :         pid_t target_pid = fg_pgrp;</span></span>
+<span id="L164"><span class="lineNum">     164</span>                 :<span class="tlaGNC">         118 :         pid_t target_pid = fg_pgrp;</span></span>
 <span id="L165"><span class="lineNum">     165</span>                 :             : </span>
 <span id="L166"><span class="lineNum">     166</span>                 :             : #if defined(__APPLE__)</span>
 <span id="L167"><span class="lineNum">     167</span>                 :             :         struct proc_bsdinfo proc;</span>
@@ -248,9 +248,9 @@
 <span id="L170"><span class="lineNum">     170</span>                 :             :         }</span>
 <span id="L171"><span class="lineNum">     171</span>                 :             : #elif defined(__linux__)</span>
 <span id="L172"><span class="lineNum">     172</span>                 :             :         try {</span>
-<span id="L173"><span class="lineNum">     173</span>   [<span class="tlaGBC" title="Branch 0 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">         117 :              std::string path = &quot;/proc/&quot; + std::to_string(target_pid) + &quot;/comm&quot;;</span></span>
-<span id="L174"><span class="lineNum">     174</span>         [<span class="tlaGBC" title="Branch 0 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         117 :              std::ifstream pid_file(path);</span></span>
-<span id="L175"><span class="lineNum">     175</span>         [<span class="tlaGBC" title="Branch 0 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         117 :              if (pid_file.is_open()) {</span></span>
+<span id="L173"><span class="lineNum">     173</span>   [<span class="tlaGBC" title="Branch 0 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span><span class="tlaGBC" title="Branch 2 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 3 was not taken"> - </span>]:<span class="tlaGNC">         118 :              std::string path = &quot;/proc/&quot; + std::to_string(target_pid) + &quot;/comm&quot;;</span></span>
+<span id="L174"><span class="lineNum">     174</span>         [<span class="tlaGBC" title="Branch 0 was taken 118 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         118 :              std::ifstream pid_file(path);</span></span>
+<span id="L175"><span class="lineNum">     175</span>         [<span class="tlaGBC" title="Branch 0 was taken 117 times"> + </span><span class="tlaGBC" title="Branch 1 was taken 1 time"> + </span>]:<span class="tlaGNC">         118 :              if (pid_file.is_open()) {</span></span>
 <span id="L176"><span class="lineNum">     176</span>                 :<span class="tlaGNC">         117 :                  std::string name;</span></span>
 <span id="L177"><span class="lineNum">     177</span>         [<span class="tlaGBC" title="Branch 0 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">         117 :                  std::getline(pid_file, name);</span></span>
 <span id="L178"><span class="lineNum">     178</span>                 :             :                  // Trim newline</span>
@@ -258,13 +258,13 @@
 <span class="lineNum">        </span>          <span class="tlaUNC" title="Branch 4 was not taken"> - </span><span class="tlaGBC" title="Branch 5 was taken 117 times"> + </span>]
 <span id="L180"><span class="lineNum">     180</span>                 :<span class="tlaGNC">         117 :                  return name;</span></span>
 <span id="L181"><span class="lineNum">     181</span>                 :<span class="tlaGNC">         117 :              }</span></span>
-<span id="L182"><span class="lineNum">     182</span>   [<span class="tlaUNC" title="Branch 0 was not taken"> - </span><span class="tlaGBC" title="Branch 1 was taken 117 times"> + </span><span class="tlaUNC" title="Branch 2 was not taken"> - </span><span class="tlaGBC" title="Branch 3 was taken 117 times"> + </span>]:<span class="tlaGNC">         234 :         } catch (...) {}</span></span>
+<span id="L182"><span class="lineNum">     182</span>   [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 1 was taken 117 times"> + </span><span class="tlaGBC" title="Branch 2 was taken 1 time"> + </span><span class="tlaGBC" title="Branch 3 was taken 117 times"> + </span>]:<span class="tlaGNC">         235 :         } catch (...) {}</span></span>
 <span id="L183"><span class="lineNum">     183</span>                 :             : #endif</span>
-<span id="L184"><span class="lineNum">     184</span>         [<span class="tlaUNC" title="Branch 0 was not executed"> # </span><span class="tlaUNC" title="Branch 1 was not executed"> # </span>]:<span class="tlaUNC tlaBgUNC">           0 :         return &quot;&quot;;</span></span>
+<span id="L184"><span class="lineNum">     184</span>         [<span class="tlaGBC" title="Branch 0 was taken 1 time"> + </span><span class="tlaUNC" title="Branch 1 was not taken"> - </span>]:<span class="tlaGNC">           2 :         return &quot;&quot;;</span></span>
 <span id="L185"><span class="lineNum">     185</span>                 :             :     }</span>
 <span id="L186"><span class="lineNum">     186</span>                 :             : </span>
-<span id="L187"><span class="lineNum">     187</span>                 :<span class="tlaGNC tlaBgGNC">         117 :     int PTYSession::get_foreground_process_pid() {</span></span>
-<span id="L188"><span class="lineNum">     188</span>                 :<span class="tlaGNC">         117 :         return tcgetpgrp(master_fd_);</span></span>
+<span id="L187"><span class="lineNum">     187</span>                 :<span class="tlaGNC">         118 :     int PTYSession::get_foreground_process_pid() {</span></span>
+<span id="L188"><span class="lineNum">     188</span>                 :<span class="tlaGNC">         118 :         return tcgetpgrp(master_fd_);</span></span>
 <span id="L189"><span class="lineNum">     189</span>                 :             :     }</span>
 <span id="L190"><span class="lineNum">     190</span>                 :             : }</span>
         </pre>
