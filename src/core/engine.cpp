@@ -1778,17 +1778,16 @@ namespace dais::core {
 
         // 4. Select Execution Method
         // Construct history injection command (Bash: history -s, Zsh: print -s)
-        // We assume quotes in original_cmd are balanced or at least simple enough; 
-        // proper escaping would require a full shell parser, but basic escaping of " is needed.
-        std::string escaped_cmd = original_cmd;
-        size_t pos = 0;
-        while ((pos = escaped_cmd.find("\"", pos)) != std::string::npos) {
-            escaped_cmd.replace(pos, 1, "\\\"");
-            pos += 2;
+        // SECURITY FIX: Use single quotes ('...') to prevent shell expansion of $(...) or `...`
+        // We escape existing single quotes as '\''.
+        std::string escaped_cmd = "";
+        for (char c : original_cmd) {
+            if (c == '\'') escaped_cmd += "'\\''";
+            else escaped_cmd += c;
         }
         
         // Polyfill to add to history without executing
-        std::string history_inject = "{ history -s \"" + escaped_cmd + "\" 2>/dev/null || print -s \"" + escaped_cmd + "\" 2>/dev/null; }";
+        std::string history_inject = "{ history -s '" + escaped_cmd + "' 2>/dev/null || print -s '" + escaped_cmd + "' 2>/dev/null; }";
 
         if (remote_agent_deployed_) {
             // A. Binary Agent (Preferred / Fast)
